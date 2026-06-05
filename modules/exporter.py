@@ -73,13 +73,13 @@ def to_excel(scored_df: pd.DataFrame, provider_df: pd.DataFrame,
 
     # Sheet 3: Provider Risk
     ws3 = wb.create_sheet("Risco de Prestadores")
-    p_cols = [c for c in ["provider_id", "provider_risk_score", "solicitação_count", "avg_amount",
+    p_cols = [c for c in ["provider_id", "provider_risk_score", "claim_count", "avg_amount",
                            "dup_rate", "round_rate", "provider_flags"] if c in provider_df.columns]
     _write_sheet(ws3, provider_df[p_cols].sort_values("provider_risk_score", ascending=False), "Risco de Prestadores")
 
     # Sheet 4: Member Risk
     ws4 = wb.create_sheet("Risco de Beneficiários")
-    m_cols = [c for c in ["member_id", "member_risk_score", "solicitação_count", "total_spend",
+    m_cols = [c for c in ["member_id", "member_risk_score", "claim_count", "total_spend",
                            "distinct_providers", "member_flags"] if c in member_df.columns]
     _write_sheet(ws4, member_df[m_cols].sort_values("member_risk_score", ascending=False), "Risco de Beneficiários")
 
@@ -108,8 +108,8 @@ def to_pdf(scored_df: pd.DataFrame, provider_df: pd.DataFrame, member_df: pd.Dat
                                 spaceAfter=8, fontName="Helvetica-Bold")
     body_style = styles["Normal"]
 
-    story.append(Paragraph("Health Solicitações Intelligence Platform", title_style))
-    story.append(Paragraph("Fraud & Anomaly Investigation Report", sub_style))
+    story.append(Paragraph("Plataforma de Detecção de Fraude para Seguro de Saúde", title_style))
+    story.append(Paragraph("Relatório de Investigação de Anomalias", sub_style))
     story.append(Spacer(1, 0.5*cm))
 
     # Summary stats
@@ -119,7 +119,7 @@ def to_pdf(scored_df: pd.DataFrame, provider_df: pd.DataFrame, member_df: pd.Dat
     total_amt = pd.to_numeric(scored_df.get("claim_amount", pd.Series()), errors="coerce").sum()
 
     summary_data = [
-        ["Metric", "Value"],
+        ["Métrica", "Valor"],
         ["Total de Solicitações Analisadas", f"{total:,}"],
         ["Solicitações de Alto Risco", f"{high:,} ({high/total*100:.1f}%)"],
         ["Solicitações de Risco Médio", f"{med:,} ({med/total*100:.1f}%)"],
@@ -140,14 +140,14 @@ def to_pdf(scored_df: pd.DataFrame, provider_df: pd.DataFrame, member_df: pd.Dat
     story.append(Spacer(1, 0.8*cm))
 
     # Top 20 flagged solicitações
-    story.append(Paragraph("Top Flagged Solicitações", sub_style))
+    story.append(Paragraph("Top Solicitações Sinalizadas", sub_style))
     flagged = scored_df[scored_df["risk_level"] == "High"].nlargest(20, "risk_score") if "risk_level" in scored_df.columns else scored_df.head(20)
 
-    solicitação_cols = [c for c in ["claim_id", "provider_id", "claim_amount", "risk_score", "risk_flags"] if c in flagged.columns]
-    headers = [c.replace("_", " ").title() for c in solicitação_cols]
-    rows = [headers] + [[str(row[c])[:40] for c in solicitação_cols] for _, row in flagged.iterrows()]
+    claim_cols = [c for c in ["claim_id", "provider_id", "claim_amount", "risk_score", "risk_flags"] if c in flagged.columns]
+    headers = [c.replace("_", " ").title() for c in claim_cols]
+    rows = [headers] + [[str(row[c])[:40] for c in claim_cols] for _, row in flagged.iterrows()]
 
-    col_widths = [3*cm, 3*cm, 2.5*cm, 2*cm, 7*cm][:len(solicitação_cols)]
+    col_widths = [3*cm, 3*cm, 2.5*cm, 2*cm, 7*cm][:len(claim_cols)]
     ct = Table(rows, colWidths=col_widths, repeatRows=1)
     ct.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0F1923")),

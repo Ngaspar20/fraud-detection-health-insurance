@@ -21,32 +21,32 @@ def run(df: pd.DataFrame, profile: ColumnProfile) -> pd.DataFrame:
     metrics = pd.DataFrame(index=grp.groups.keys())
     metrics.index.name = "member_id"
 
-    # Total solicitações
-    metrics["solicitação_count"] = grp["claim_id"].count()
+    # Total claims
+    metrics["claim_count"] = grp["claim_id"].count()
 
     # Total spend
     metrics["total_spend"] = grp["_amount"].sum()
 
-    # Avg solicitação amount
+    # Avg claim amount
     metrics["avg_amount"] = grp["_amount"].mean()
 
     # Distinct providers (multi-provider shopping)
     metrics["distinct_providers"] = grp["provider_id"].nunique()
 
-    # Same-day multi-solicitação
+    # Same-day multi-claim
     if profile.has_service_date and "service_date" in df.columns:
         df["_sdate"] = pd.to_datetime(df["service_date"], errors="coerce").dt.date
         same_day = df.groupby(["member_id", "_sdate"])["claim_id"].count()
         max_same_day = same_day.groupby(level="member_id").max()
-        metrics["max_same_day_solicitaçãos"] = max_same_day.reindex(metrics.index).fillna(1)
+        metrics["max_same_day_claims"] = max_same_day.reindex(metrics.index).fillna(1)
     else:
-        metrics["max_same_day_solicitaçãos"] = 1.0
+        metrics["max_same_day_claims"] = 1.0
 
-    s_count    = _scale(metrics["solicitação_count"])
+    s_count    = _scale(metrics["claim_count"])
     s_spend    = _scale(metrics["total_spend"])
     s_avg      = _scale(metrics["avg_amount"])
     s_providers = _scale(metrics["distinct_providers"])
-    s_sameday  = _scale(metrics["max_same_day_solicitaçãos"])
+    s_sameday  = _scale(metrics["max_same_day_claims"])
 
     weights = {"count": 0.20, "spend": 0.25, "avg": 0.20, "providers": 0.20, "sameday": 0.15}
 
@@ -62,7 +62,7 @@ def run(df: pd.DataFrame, profile: ColumnProfile) -> pd.DataFrame:
     metrics.loc[metrics["distinct_providers"] > 5, "member_flags"] += "Acesso a múltiplos prestadores (>5); "
     metrics.loc[s_spend > 85, "member_flags"] += "Gasto total muito acima do grupo de referência; "
     if profile.has_service_date:
-        metrics.loc[metrics["max_same_day_solicitaçãos"] > 2, "member_flags"] += "Múltiplas solicitações no mesmo dia; "
+        metrics.loc[metrics["max_same_day_claims"] > 2, "member_flags"] += "Múltiplas solicitações no mesmo dia; "
 
     metrics = metrics.reset_index()
 

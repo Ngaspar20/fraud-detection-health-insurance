@@ -22,7 +22,7 @@ def run(df: pd.DataFrame, profile: ColumnProfile) -> pd.DataFrame:
     metrics.index.name = "provider_id"
 
     # Solicitação volume
-    metrics["solicitação_count"] = grp["claim_id"].count()
+    metrics["claim_count"] = grp["claim_id"].count()
 
     # Average solicitação amount
     metrics["avg_amount"] = grp["_amount"].mean()
@@ -35,24 +35,24 @@ def run(df: pd.DataFrame, profile: ColumnProfile) -> pd.DataFrame:
     if profile.has_service_date and "service_date" in df.columns:
         dup_cols.append("service_date")
     dup_mask = df.duplicated(subset=["provider_id"] + dup_cols, keep=False)
-    dup_rate = df[dup_mask].groupby("provider_id")["claim_id"].count() / metrics["solicitação_count"]
+    dup_rate = df[dup_mask].groupby("provider_id")["claim_id"].count() / metrics["claim_count"]
     metrics["dup_rate"] = dup_rate.fillna(0)
 
     # Round-number billing rate
     round_mask = (amounts % 100 == 0) & (amounts >= 500)
-    round_rate = df[round_mask].groupby("provider_id")["claim_id"].count() / metrics["solicitação_count"]
+    round_rate = df[round_mask].groupby("provider_id")["claim_id"].count() / metrics["claim_count"]
     metrics["round_rate"] = round_rate.fillna(0)
 
     # Weekend/holiday billing ratio
     if profile.has_service_date and "service_date" in df.columns:
         df["_dow"] = pd.to_datetime(df["service_date"], errors="coerce").dt.dayofweek
         weekend = df[df["_dow"] >= 5].groupby("provider_id")["claim_id"].count()
-        metrics["weekend_rate"] = (weekend / metrics["solicitação_count"]).fillna(0)
+        metrics["weekend_rate"] = (weekend / metrics["claim_count"]).fillna(0)
     else:
         metrics["weekend_rate"] = 0.0
 
     # Compute scaled scores
-    s_volume   = _scale(metrics["solicitação_count"])
+    s_volume   = _scale(metrics["claim_count"])
     s_avg      = _scale(metrics["avg_amount"])
     s_std      = _scale(metrics["std_amount"])
     s_dup      = _scale(metrics["dup_rate"])
