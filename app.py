@@ -459,7 +459,7 @@ if page == "Como Funciona":
              "estatisticamente isolados do comportamento normal da carteira. Detecta padrões complexos "
              "que as regras simples não conseguem capturar."),
             ("Z-Score por Prestador", "Compara o valor de cada solicitação com a média e desvio padrão dos "
-             "solicitaçãos do mesmo prestador. Um Z-Score > 3 indica que o valor está muito acima do habitual "
+             "claims do mesmo prestador. Um Z-Score > 3 indica que o valor está muito acima do habitual "
              "para aquele prestador específico."),
             ("Detecção de Duplicados", "Identifica solicitações com o mesmo beneficiário, prestador e valor "
              "na mesma data. Padrão comum em esquemas de facturação duplicada intencional."),
@@ -883,12 +883,12 @@ if st.session_state.scored_df is not None:
         ec1, ec2, ec3 = st.columns(3)
         with ec1:
             xlsx = exporter.to_excel(df, prov_df, mem_df, df)
-            st.download_button("📥 Descarregar Excel", xlsx, "relatorio_solicitaçãos.xlsx",
+            st.download_button("📥 Descarregar Excel", xlsx, "relatorio_claims.xlsx",
                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                use_container_width=True)
         with ec2:
             csv_bytes = exporter.to_csv(df)
-            st.download_button("📥 Descarregar CSV", csv_bytes, "solicitaçãos_sinalizados.csv",
+            st.download_button("📥 Descarregar CSV", csv_bytes, "claims_sinalizados.csv",
                                "text/csv", use_container_width=True)
         with ec3:
             pdf_bytes = exporter.to_pdf(df, prov_df, mem_df)
@@ -949,7 +949,7 @@ if st.session_state.scored_df is not None:
             r = prov_row.iloc[0]
             p1, p2, p3, p4 = st.columns(4)
             p1.metric("Pontuação de Risco",  f"{r.get('provider_risk_score', 0):.1f}")
-            p2.metric("Total de Solicitações",  f"{int(r.get('solicitação_count', 0)):,}")
+            p2.metric("Total de Solicitações",  f"{int(r.get('claim_count', 0)):,}")
             p3.metric("Valor Médio",         f"${r.get('avg_amount', 0):,.2f}")
             p4.metric("Taxa de Duplicados",  f"{r.get('dup_rate', 0)*100:.1f}%")
 
@@ -959,24 +959,24 @@ if st.session_state.scored_df is not None:
                     if f.strip():
                         st.markdown(f'<div class="alert-high">{f.strip()}</div>', unsafe_allow_html=True)
 
-            provider_solicitaçãos = df[df["provider_id"].astype(str) == sel_provider]
-            if len(provider_solicitaçãos) > 0:
-                st.caption(f"{len(provider_solicitaçãos):,} solicitações deste prestador")
+            provider_claims = df[df["provider_id"].astype(str) == sel_provider]
+            if len(provider_claims) > 0:
+                st.caption(f"{len(provider_claims):,} solicitações deste prestador")
                 show_cols = [c for c in ["claim_id", "member_id", "claim_date",
                                           "claim_amount", "risk_score", "risk_level"]
-                             if c in provider_solicitaçãos.columns]
-                st.dataframe(provider_solicitaçãos[show_cols].sort_values("risk_score", ascending=False).head(100),
+                             if c in provider_claims.columns]
+                st.dataframe(provider_claims[show_cols].sort_values("risk_score", ascending=False).head(100),
                              width='stretch')
 
-        if "avg_amount" in prov_df.columns and "solicitação_count" in prov_df.columns:
+        if "avg_amount" in prov_df.columns and "claim_count" in prov_df.columns:
             fig_scatter = px.scatter(
                 prov_df,
-                x="solicitação_count", y="avg_amount",
+                x="claim_count", y="avg_amount",
                 size="provider_risk_score", color="provider_risk_score",
                 hover_data=["provider_id"],
                 color_continuous_scale=[[0, "#22C55E"], [0.5, "#F59E0B"], [1, "#EF4444"]],
                 title="Risco do Prestador: Volume de Solicitações vs. Valor Médio",
-                labels={"solicitação_count": "Número de Solicitações", "avg_amount": "Valor Médio ($)"},
+                labels={"claim_count": "Número de Solicitações", "avg_amount": "Valor Médio ($)"},
             )
             fig_scatter.update_layout(
                 paper_bgcolor="#1E2D3D", plot_bgcolor="#1E2D3D",
@@ -1036,7 +1036,7 @@ if st.session_state.scored_df is not None:
                 mem_df,
                 x="distinct_providers", y="total_spend",
                 color="member_risk_score",
-                size="solicitação_count",
+                size="claim_count",
                 hover_data=["member_id"],
                 color_continuous_scale=[[0, "#22C55E"], [0.5, "#F59E0B"], [1, "#EF4444"]],
                 title="Padrão de Utilização: Prestadores Distintos vs. Gasto Total",
@@ -1049,7 +1049,7 @@ if st.session_state.scored_df is not None:
             st.plotly_chart(fig_shop, width='stretch')
 
         st.subheader("Beneficiários de Alto Risco")
-        m_cols = [c for c in ["member_id", "member_risk_score", "solicitação_count", "total_spend",
+        m_cols = [c for c in ["member_id", "member_risk_score", "claim_count", "total_spend",
                                "distinct_providers", "member_flags"] if c in mem_df.columns]
         st.dataframe(
             mem_df[m_cols].sort_values("member_risk_score", ascending=False).head(200),
@@ -1160,7 +1160,7 @@ if st.session_state.scored_df is not None:
                 <div style="font-size:0.9rem;color:{risk_color};font-weight:600;margin-top:2px">
                     Nível de Risco: {risk_level}</div>
                 <div style="font-size:0.82rem;color:#64748B;margin-top:2px">
-                    {int(r.get('solicitação_count',0)):,} solicitações &bull;
+                    {int(r.get('claim_count',0)):,} solicitações &bull;
                     Gasto total: ${r.get('total_spend',0):,.2f} &bull;
                     {int(r.get('distinct_providers',0))} prestadores distintos</div>
             </div>
@@ -1170,7 +1170,7 @@ if st.session_state.scored_df is not None:
         # ── KPIs do beneficiário ───────────────────────────────────────────────
         k1, k2, k3, k4 = st.columns(4)
         k1.metric("Pontuação de Risco",      f"{risk_score:.1f} / 100")
-        k2.metric("Total de Solicitações",         f"{int(r.get('solicitação_count', 0)):,}")
+        k2.metric("Total de Solicitações",         f"{int(r.get('claim_count', 0)):,}")
         k3.metric("Gasto Total",             f"${r.get('total_spend', 0):,.2f}")
         k4.metric("Prestadores Distintos",   f"{int(r.get('distinct_providers', 0))}")
 
@@ -1256,7 +1256,7 @@ if st.session_state.scored_df is not None:
             from openpyxl.styles import PatternFill, Font, Alignment
             from openpyxl.utils import get_column_letter
 
-            def member_excel(member_id, solicitações_df, mem_info):
+            def member_excel(member_id, claims_df, mem_info):
                 wb = OWorkbook()
                 ws = wb.active
                 ws.title = "Perfil de Risco"
@@ -1267,7 +1267,7 @@ if st.session_state.scored_df is not None:
                 ws.append(["RELATÓRIO DE RISCO — BENEFICIÁRIO", member_id])
                 ws.append(["Pontuação de Risco", f"{mem_info.get('member_risk_score', 0):.1f} / 100"])
                 ws.append(["Nível de Risco", risk_level])
-                ws.append(["Total de Solicitações", int(mem_info.get("solicitação_count", 0))])
+                ws.append(["Total de Solicitações", int(mem_info.get("claim_count", 0))])
                 ws.append(["Gasto Total", f"${mem_info.get('total_spend', 0):,.2f}"])
                 ws.append(["Prestadores Distintos", int(mem_info.get("distinct_providers", 0))])
                 ws.append(["Sinais de Risco", flags_raw or "Nenhum"])
@@ -1275,13 +1275,13 @@ if st.session_state.scored_df is not None:
 
                 # Solicitações table
                 cols = [c for c in ["claim_id", "provider_id", "claim_date", "claim_amount",
-                                    "risk_score", "risk_level", "risk_flags"] if c in solicitações_df.columns]
+                                    "risk_score", "risk_level", "risk_flags"] if c in claims_df.columns]
                 ws.append(cols)
                 for cell in ws[ws.max_row]:
                     cell.fill = navy
                     cell.font = white_font
 
-                for row_data in solicitações_df[cols].itertuples(index=False):
+                for row_data in claims_df[cols].itertuples(index=False):
                     ws.append(list(row_data))
 
                 for i in range(1, len(cols) + 1):
