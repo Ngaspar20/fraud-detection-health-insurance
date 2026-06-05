@@ -1,0 +1,1209 @@
+import logging
+
+# Suppress harmless Windows WinError 10054 noise from asyncio ProactorEventLoop
+logging.getLogger("asyncio").setLevel(logging.CRITICAL)
+
+import streamlit as st
+import pandas as pd
+import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
+from datetime import datetime
+
+from modules.column_detector import detect_columns
+from modules.data_loader import parse_upload, save_session, list_sessions, load_session, delete_session
+from modules import fraud_detection, provider_risk, member_utilization, cost_outlier, risk_scorer, exporter
+
+# ── Page config ───────────────────────────────────────────────────────────────
+st.set_page_config(
+    page_title="Plataforma de Detecção de Fraude para Seguro de Saúde",
+    page_icon="🔍",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+# ── Theme ─────────────────────────────────────────────────────────────────────
+THEME_CSS = """
+<style>
+html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+.stApp { background-color: #0F1923; color: #E2E8F0; }
+
+[data-testid="stSidebar"] {
+    background-color: #1E2D3D !important;
+    border-right: 1px solid #2D3F50;
+}
+[data-testid="stSidebar"] * { color: #E2E8F0 !important; }
+
+/* ── Radio nav menu styling ── */
+[data-testid="stSidebar"] .stRadio > label { display: none !important; }
+[data-testid="stSidebar"] .stRadio > div[role="radiogroup"] {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 2px !important;
+}
+[data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label {
+    display: flex !important;
+    align-items: center !important;
+    padding: 0.55rem 1rem !important;
+    border-radius: 8px !important;
+    cursor: pointer !important;
+    transition: background 0.15s ease !important;
+    font-size: 0.92rem !important;
+    font-weight: 500 !important;
+    color: #94A3B8 !important;
+    border: none !important;
+    background: transparent !important;
+    width: 100% !important;
+}
+[data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label:hover {
+    background: #243447 !important;
+    color: #F1F5F9 !important;
+}
+[data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label:has(input:checked) {
+    background: rgba(245,158,11,0.12) !important;
+    border-left: 3px solid #F59E0B !important;
+    color: #F59E0B !important;
+    font-weight: 700 !important;
+    padding-left: calc(1rem - 3px) !important;
+}
+[data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label > div:first-child {
+    display: none !important;
+}
+[data-testid="stSidebar"] .stRadio > div[role="radiogroup"] > label > div:last-child {
+    color: inherit !important;
+    font-size: inherit !important;
+    font-weight: inherit !important;
+}
+
+.card {
+    background: #1E2D3D;
+    border: 1px solid #2D3F50;
+    border-radius: 10px;
+    padding: 1.2rem;
+    margin-bottom: 0.8rem;
+}
+.kpi-value { font-size: 2rem; font-weight: 700; color: #F59E0B; }
+.kpi-label { font-size: 0.8rem; color: #94A3B8; text-transform: uppercase; letter-spacing: 0.05em; }
+.kpi-high   { color: #EF4444 !important; }
+.kpi-medium { color: #F59E0B !important; }
+.kpi-low    { color: #22C55E !important; }
+.kpi-blue   { color: #3B82F6 !important; }
+
+h1, h2, h3 { color: #F1F5F9 !important; }
+
+/* st.metric visibility on dark background */
+[data-testid="stMetric"] {
+    background: #243447;
+    border: 1px solid #2D3F50;
+    border-radius: 10px;
+    padding: 0.8rem 1rem;
+}
+[data-testid="stMetricLabel"] { color: #94A3B8 !important; font-size: 0.78rem !important; text-transform: uppercase; letter-spacing: 0.05em; }
+[data-testid="stMetricValue"] { color: #F1F5F9 !important; font-size: 1.6rem !important; font-weight: 700 !important; }
+[data-testid="stMetricDelta"] { color: #94A3B8 !important; }
+
+.dataframe thead th { background-color: #1E2D3D !important; color: #E2E8F0 !important; }
+.dataframe tbody tr:nth-child(even) { background-color: #172230 !important; }
+.dataframe tbody tr:nth-child(odd)  { background-color: #1E2D3D !important; }
+
+.stSelectbox label, .stSlider label, .stFileUploader label { color: #CBD5E1 !important; }
+[data-testid="stFileUploader"] { background: #243447; border: 1px dashed #3B82F6; border-radius: 8px; }
+
+.alert-high   { background:#2D1515; border-left:4px solid #EF4444; padding:0.7rem 1rem; border-radius:6px; margin:4px 0; }
+.alert-medium { background:#2D2415; border-left:4px solid #F59E0B; padding:0.7rem 1rem; border-radius:6px; margin:4px 0; }
+.alert-low    { background:#152D1A; border-left:4px solid #22C55E; padding:0.7rem 1rem; border-radius:6px; margin:4px 0; }
+</style>
+"""
+st.markdown(THEME_CSS, unsafe_allow_html=True)
+
+# ── Session state ──────────────────────────────────────────────────────────────
+if "scored_df" not in st.session_state:
+    st.session_state.scored_df = None
+if "provider_df" not in st.session_state:
+    st.session_state.provider_df = None
+if "member_df" not in st.session_state:
+    st.session_state.member_df = None
+if "profile" not in st.session_state:
+    st.session_state.profile = None
+if "active_session" not in st.session_state:
+    st.session_state.active_session = None
+
+
+# ── Sidebar navigation ─────────────────────────────────────────────────────────
+NAV_OPTIONS = [
+    "📊  Painel de Controlo",
+    "🔎  Análise de Solicitações",
+    "🏥  Inteligência de Prestadores",
+    "👤  Análise de Beneficiários",
+    "💰  Custos Atípicos",
+    "📋  Relatório por Beneficiário",
+    "📁  Gestão de Dados",
+    "ℹ️  Como Funciona",
+]
+
+with st.sidebar:
+    st.markdown(
+        "<div style='padding:1rem 0.5rem 0.8rem 0.8rem'>"
+        "<span style='font-size:1.15rem;font-weight:800;color:#F59E0B;letter-spacing:-0.3px'>"
+        "Painel Executivo</span>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown("<hr style='border-color:#2D3F50;margin:0 0 0.4rem 0'>", unsafe_allow_html=True)
+
+    nav_selection = st.radio("nav", NAV_OPTIONS, label_visibility="hidden")
+
+    st.markdown("<hr style='border-color:#2D3F50;margin:0.4rem 0'>", unsafe_allow_html=True)
+
+    if st.session_state.scored_df is not None:
+        _df = st.session_state.scored_df
+        _high = (_df["risk_level"] == "High").sum()
+        st.markdown(
+            f"<div style='padding:0.7rem 0.8rem;background:#243447;"
+            f"border-radius:8px;border:1px solid #2D3F50'>"
+            f"<div style='color:#94A3B8;font-size:0.7rem;text-transform:uppercase;"
+            f"letter-spacing:0.06em;margin-bottom:4px'>Sessão Activa</div>"
+            f"<div style='color:#E2E8F0;font-weight:600;font-size:0.95rem'>{len(_df):,} solicitações</div>"
+            f"<div style='color:#EF4444;font-size:0.82rem;margin-top:2px'>"
+            f"&#11044; {_high} de alto risco</div>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+        if st.session_state.profile and st.session_state.profile.missing_features:
+            with st.expander("ℹ️ Análises omitidas"):
+                for note in st.session_state.profile.missing_features:
+                    st.caption(f"• {note}")
+
+page = nav_selection.split("  ", 1)[1] if "  " in nav_selection else nav_selection
+
+
+# ── Analysis pipeline ──────────────────────────────────────────────────────────
+def run_analysis(df_raw: pd.DataFrame):
+    with st.spinner("A detectar colunas..."):
+        df, profile, missing = detect_columns(df_raw)
+
+    if missing:
+        st.error(f"Colunas obrigatórias em falta: {', '.join(missing)}. Por favor, adicione-as ao ficheiro.")
+        st.stop()
+
+    df["claim_amount"] = pd.to_numeric(df["claim_amount"], errors="coerce").fillna(0)
+    if "claim_date" in df.columns:
+        df["claim_date"] = pd.to_datetime(df["claim_date"], errors="coerce")
+
+    with st.spinner("A executar detecção de anomalias..."):
+        anomaly_res = fraud_detection.run(df, profile)
+
+    with st.spinner("A calcular risco por prestador..."):
+        prov_solicitação_scores, provider_df = provider_risk.run(df, profile)
+
+    with st.spinner("A analisar utilização por beneficiário..."):
+        mem_solicitação_scores, member_df = member_utilization.run(df, profile)
+
+    with st.spinner("A detectar custos atípicos..."):
+        cost_res = cost_outlier.run(df, profile)
+
+    with st.spinner("A calcular pontuação de risco composta..."):
+        scored = risk_scorer.compute(df, anomaly_res, prov_solicitação_scores, mem_solicitação_scores, cost_res)
+
+    st.session_state.scored_df   = scored
+    st.session_state.provider_df = provider_df
+    st.session_state.member_df   = member_df
+    st.session_state.profile     = profile
+    st.success("Análise concluída.")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# PÁGINA: Gestão de Dados
+# ──────────────────────────────────────────────────────────────────────────────
+if page == "Gestão de Dados":
+    st.title("Gestão de Dados")
+
+    col1, col2 = st.columns([1, 1])
+
+    with col1:
+        st.subheader("Carregar Novo Ficheiro de Solicitações")
+        uploaded = st.file_uploader("CSV ou Excel (.xlsx)", type=["csv", "xlsx"])
+        contamination = st.slider("Sensibilidade a anomalias (% esperada de outliers)", 1, 20, 5) / 100
+
+        if uploaded:
+            if st.button("Analisar Ficheiro", type="primary"):
+                df_raw = parse_upload(uploaded)
+                sid = save_session(df_raw, uploaded.name)
+                st.session_state.active_session = sid
+                run_analysis(df_raw)
+                st.rerun()
+
+    with col2:
+        st.subheader("Sessões Anteriores")
+        sessions = list_sessions()
+        if len(sessions) > 0:
+            for _, row in sessions.iterrows():
+                c1, c2, c3 = st.columns([3, 1, 1])
+                with c1:
+                    st.markdown(f"**{row['filename']}**  \n{row['uploaded_at'][:16]} · {row['row_count']:,} registos")
+                with c2:
+                    if st.button("Carregar", key=f"load_{row['session_id']}"):
+                        df_raw = load_session(row["session_id"])
+                        st.session_state.active_session = row["session_id"]
+                        run_analysis(df_raw)
+                        st.rerun()
+                with c3:
+                    if st.button("🗑️", key=f"del_{row['session_id']}"):
+                        delete_session(row["session_id"])
+                        st.rerun()
+                st.divider()
+        else:
+            st.info("Nenhuma sessão anterior encontrada. Carregue um ficheiro para começar.")
+
+    st.subheader("Formato de Colunas Necessário")
+    st.markdown("""
+    | Coluna | Obrigatório | Descrição |
+    |--------|-------------|-----------|
+    | `claim_id` | ✅ | Identificador único do solicitação |
+    | `member_id` | ✅ | Identificador do beneficiário / paciente |
+    | `provider_id` | ✅ | Identificador do prestador / estabelecimento |
+    | `claim_date` | ✅ | Data de submissão do solicitação |
+    | `claim_amount` | ✅ | Valor total facturado |
+    | `diagnosis_code` | Opcional | Código de diagnóstico ICD-10 |
+    | `procedure_code` | Opcional | Código de procedimento CPT / HCPCS |
+    | `service_date` | Opcional | Data de prestação do serviço |
+    | `paid_amount` | Opcional | Valor aprovado / pago |
+    | `provider_specialty` | Opcional | Especialidade do prestador |
+    | `member_age` | Opcional | Idade do beneficiário |
+    | `member_gender` | Opcional | Género do beneficiário |
+    | `drug_name` / `ndc_code` | Opcional | Para solicitações de farmácia |
+    """)
+
+
+# ── Como Funciona ─────────────────────────────────────────────────────────────
+if page == "Como Funciona":
+    st.markdown("""
+    <div style="background:linear-gradient(135deg,#1E2D3D 0%,#162030 100%);
+                border:1px solid #2D3F50;border-left:5px solid #3B82F6;
+                border-radius:12px;padding:1.4rem 1.8rem;margin-bottom:1.5rem">
+        <div style="font-size:1.5rem;font-weight:800;color:#F1F5F9">
+            ℹ️ Como Funciona a Plataforma
+        </div>
+        <div style="font-size:0.88rem;color:#94A3B8;margin-top:0.3rem">
+            Guia completo de utilização e metodologia de detecção de fraude
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    t1, t2, t3, t4 = st.tabs([
+        "🚀  Início Rápido",
+        "🧠  Metodologia",
+        "📊  Módulos de Análise",
+        "📁  Formato dos Dados",
+    ])
+
+    with t1:
+        st.markdown("### Como começar em 3 passos")
+        steps = [
+            ("1", "#3B82F6", "Carregar os dados",
+             "Vá a **Gestão de Dados** no menu lateral e carregue um ficheiro CSV ou Excel com os seus solicitações. "
+             "A plataforma detecta automaticamente as colunas disponíveis e adapta as análises ao que existe no ficheiro. "
+             "Só são obrigatórias 5 colunas: `claim_id`, `member_id`, `provider_id`, `claim_date`, `claim_amount`."),
+            ("2", "#F59E0B", "Analisar os resultados",
+             "Após o carregamento, a plataforma executa automaticamente 4 módulos de análise em paralelo: "
+             "detecção de anomalias, risco de prestadores, utilização de beneficiários e custos atípicos. "
+             "Cada solicitação recebe uma **pontuação de risco de 0 a 100**."),
+            ("3", "#22C55E", "Priorizar e exportar",
+             "Use o **Painel de Controlo** para ver os alertas mais críticos, a **Análise de Solicitações** para filtrar e "
+             "investigar casos específicos, e os botões de exportação para descarregar relatórios em Excel, CSV ou PDF "
+             "para partilhar com a equipa de investigação."),
+        ]
+        for num, color, title, desc in steps:
+            st.markdown(
+                f'<div style="display:flex;gap:1rem;background:#1E2D3D;border:1px solid #2D3F50;'
+                f'border-radius:10px;padding:1.1rem 1.3rem;margin-bottom:0.7rem;align-items:flex-start">'
+                f'<div style="background:{color};color:#0F1923;font-size:1.1rem;font-weight:800;'
+                f'border-radius:50%;width:36px;height:36px;display:flex;align-items:center;'
+                f'justify-content:center;flex-shrink:0">{num}</div>'
+                f'<div><div style="font-size:1rem;font-weight:700;color:#F1F5F9;margin-bottom:0.3rem">{title}</div>'
+                f'<div style="font-size:0.87rem;color:#94A3B8;line-height:1.6">{desc}</div></div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+        st.markdown("---")
+        st.markdown("### Níveis de Risco")
+        for color, bg, border, level, desc in [
+            ("#EF4444","#2D1515","#EF444440","🔴 Alto Risco (70–100)",
+             "Solicitação com múltiplos sinais de fraude activos. Requer investigação prioritária. "
+             "Inclui outliers estatísticos, duplicados e facturação anómala."),
+            ("#F59E0B","#2D2415","#F59E0B40","🟡 Risco Médio (40–69)",
+             "Solicitação com um ou mais sinais de atenção. Deve ser revisto pela equipa, "
+             "mas pode ter justificação clínica ou administrativa legítima."),
+            ("#22C55E","#152D1A","#22C55E40","🟢 Baixo Risco (0–39)",
+             "Solicitação dentro dos padrões normais de facturação. Sem sinais de anomalia detectados "
+             "nos modelos estatísticos e de comparação com pares."),
+        ]:
+            st.markdown(
+                f'<div style="background:{bg};border:1px solid {border};border-radius:8px;'
+                f'padding:0.8rem 1.1rem;margin-bottom:0.5rem">'
+                f'<div style="font-weight:700;color:{color};margin-bottom:0.2rem">{level}</div>'
+                f'<div style="font-size:0.85rem;color:#94A3B8">{desc}</div></div>',
+                unsafe_allow_html=True,
+            )
+
+    with t2:
+        st.markdown("### Fórmula de Pontuação de Risco Composta")
+        st.markdown(
+            '<div style="background:#1E2D3D;border:1px solid #2D3F50;border-radius:10px;'
+            'padding:1.2rem 1.5rem;font-family:monospace;font-size:0.92rem;color:#A78BFA;margin-bottom:1rem">'
+            'Pontuação Final = <br>'
+            '&nbsp;&nbsp;Anomalia Estatística &times; 35% <br>'
+            '&nbsp;&nbsp;+ Risco do Prestador &nbsp;&times; 25% <br>'
+            '&nbsp;&nbsp;+ Risco do Beneficiário &times; 20% <br>'
+            '&nbsp;&nbsp;+ Custo Atípico &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&times; 20%'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+        st.markdown("### Sinais de Fraude Detectados")
+        signals = [
+            ("Isolation Forest", "Modelo de Machine Learning não-supervisionado que identifica solicitações "
+             "estatisticamente isolados do comportamento normal da carteira. Detecta padrões complexos "
+             "que as regras simples não conseguem capturar."),
+            ("Z-Score por Prestador", "Compara o valor de cada solicitação com a média e desvio padrão dos "
+             "solicitaçãos do mesmo prestador. Um Z-Score > 3 indica que o valor está muito acima do habitual "
+             "para aquele prestador específico."),
+            ("Detecção de Duplicados", "Identifica solicitações com o mesmo beneficiário, prestador e valor "
+             "na mesma data. Padrão comum em esquemas de facturação duplicada intencional."),
+            ("Valores Redondos", "Valores exactamente redondos (ex: $500, $1.000, $2.500) são "
+             "estatisticamente raros em facturação real e podem indicar facturação estimada ou fictícia."),
+            ("Alta Frequência de Procedimentos", "Detecta prestadores que facturam determinados "
+             "procedimentos com frequência muito superior à média dos pares — sinal clássico de upcoding."),
+            ("Custo Atípico vs. Pares", "Compara o valor do solicitação com a média de outros solicitações "
+             "semelhantes (mesmo procedimento, especialidade ou carteira geral). Valores > 2 desvios "
+             "padrão acima da média são sinalizados."),
+        ]
+        for i, (title, desc) in enumerate(signals):
+            color = ["#3B82F6","#F59E0B","#EF4444","#A78BFA","#22C55E","#F97316"][i % 6]
+            st.markdown(
+                f'<div style="background:#1E2D3D;border:1px solid #2D3F50;border-left:4px solid {color};'
+                f'border-radius:8px;padding:0.9rem 1.1rem;margin-bottom:0.5rem">'
+                f'<div style="font-weight:700;color:{color};margin-bottom:0.3rem">{title}</div>'
+                f'<div style="font-size:0.85rem;color:#94A3B8;line-height:1.6">{desc}</div></div>',
+                unsafe_allow_html=True,
+            )
+
+    with t3:
+        st.markdown("### Módulos de Análise")
+        modules = [
+            ("📊", "#3B82F6", "Painel de Controlo",
+             "Vista executiva com KPIs principais, distribuição de risco, alertas críticos e evolução mensal. "
+             "Ponto de entrada ideal para a revisão diária."),
+            ("🔎", "#F59E0B", "Análise de Solicitações",
+             "Tabela completa de todos os solicitações com filtros por risco, prestador e período. "
+             "Inclui vista em cards com detalhe de cada sinal detectado e exportação directa."),
+            ("🏥", "#EF4444", "Inteligência de Prestadores",
+             "Ranking de prestadores por pontuação de risco agregada. Analisa volume, valor médio, "
+             "taxa de duplicados, facturação em valores redondos e padrões de fim de semana."),
+            ("👤", "#A78BFA", "Análise de Beneficiários",
+             "Identifica beneficiários com padrões de utilização anómalos: multi-prestadores, "
+             "múltiplas solicitações no mesmo dia e gastos muito acima do grupo de referência."),
+            ("💰", "#22C55E", "Custos Atípicos",
+             "Compara o valor de cada solicitação com a média de pares (por procedimento, especialidade "
+             "ou carteira global). Mostra scatter plot de valor vs. referência."),
+            ("📋", "#F97316", "Relatório por Beneficiário",
+             "Perfil de risco individual de cada beneficiário com histórico de solicitações, "
+             "sinais detectados, evolução de gastos e exportação em PDF ou Excel."),
+        ]
+        col_a, col_b = st.columns(2)
+        for i, (icon, color, name, desc) in enumerate(modules):
+            with (col_a if i % 2 == 0 else col_b):
+                st.markdown(
+                    f'<div style="background:#1E2D3D;border:1px solid #2D3F50;border-radius:10px;'
+                    f'padding:1rem 1.2rem;margin-bottom:0.7rem">'
+                    f'<div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.4rem">'
+                    f'<span style="font-size:1.3rem">{icon}</span>'
+                    f'<span style="font-weight:700;color:{color};font-size:0.95rem">{name}</span></div>'
+                    f'<div style="font-size:0.82rem;color:#94A3B8;line-height:1.6">{desc}</div></div>',
+                    unsafe_allow_html=True,
+                )
+
+    with t4:
+        st.markdown("### Colunas do Ficheiro de Dados")
+        st.markdown(
+            '<div style="background:#2D1515;border:1px solid #EF444440;border-radius:8px;'
+            'padding:0.8rem 1.1rem;margin-bottom:1rem">'
+            '<strong style="color:#EF4444">Colunas obrigatórias</strong> — '
+            '<span style="color:#94A3B8;font-size:0.87rem">Sem estas colunas a análise não pode ser executada.</span>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown("""
+| Coluna | Tipo | Descrição |
+|--------|------|-----------|
+| `claim_id` | Texto / Número | Identificador único de cada solicitação |
+| `member_id` | Texto / Número | Identificador do beneficiário |
+| `provider_id` | Texto / Número | Identificador do prestador |
+| `claim_date` | Data (YYYY-MM-DD) | Data de submissão do solicitação |
+| `claim_amount` | Número decimal | Valor total facturado |
+""")
+        st.markdown(
+            '<div style="background:#152D1A;border:1px solid #22C55E40;border-radius:8px;'
+            'padding:0.8rem 1.1rem;margin:1rem 0">'
+            '<strong style="color:#22C55E">Colunas opcionais</strong> — '
+            '<span style="color:#94A3B8;font-size:0.87rem">Enriquecem a análise mas não são obrigatórias.</span>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown("""
+| Coluna | Activa |
+|--------|--------|
+| `diagnosis_code` | Análise de upcoding por diagnóstico |
+| `procedure_code` | Benchmark por procedimento (mais preciso) |
+| `service_date` | Detecção de duplicados no mesmo dia |
+| `paid_amount` | Análise de ajustes e negações |
+| `provider_specialty` | Benchmark por especialidade |
+| `member_age` | Segmentação demográfica |
+| `member_gender` | Segmentação demográfica |
+| `drug_name` / `ndc_code` | Análise de solicitações de farmácia |
+| `claim_type` | Segmentação por tipo de solicitação |
+""")
+        st.info("A plataforma aceita nomes de colunas alternativos. Por exemplo: `npi`, `billed_amount`, `dos`, `icd10`, `cpt` — são automaticamente mapeados para os nomes canónicos.")
+
+    st.stop()
+
+
+# ── Cabeçalho da plataforma (sempre visível no Painel) ────────────────────────
+if page == "Painel de Controlo":
+    st.markdown("""
+    <div style="
+        display: flex;
+        align-items: center;
+        gap: 1.1rem;
+        background: linear-gradient(135deg, #1E2D3D 0%, #162030 100%);
+        border: 1px solid #2D3F50;
+        border-left: 5px solid #EF4444;
+        border-radius: 12px;
+        padding: 1.4rem 1.8rem;
+        margin-bottom: 1.5rem;
+    ">
+        <div style="
+            background: #EF4444;
+            border-radius: 12px;
+            width: 56px; height: 56px;
+            display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0;
+            box-shadow: 0 0 18px #EF444455;
+        ">
+            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="white">
+              <path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0
+                       2-2V5a2 2 0 0 0-2-2zm-7 14h-2v-4H6v-2h4V7h2v4h4v2h-4v4z"/>
+            </svg>
+        </div>
+        <div>
+            <div style="font-size:2.2rem; font-weight:900; color:#F1F5F9; line-height:1.15; letter-spacing:-0.5px">
+                Plataforma de Detecção de Fraude para Seguro de Saúde
+            </div>
+            <div style="font-size:0.95rem; color:#94A3B8; margin-top:0.5rem; letter-spacing:0.02em">
+                Fraude &bull; Desperdício &bull; Abuso &bull; Risco de Prestadores &bull; Custos Atípicos
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+# ── Guardar: exige dados para páginas de análise ──────────────────────────────
+if page != "Gestão de Dados" and page != "Como Funciona" and st.session_state.scored_df is None:
+    if page == "Painel de Controlo":
+        st.markdown("""
+        <div style="background:#243447;border:1px solid #2D3F50;border-radius:10px;
+                    padding:1.5rem 2rem;text-align:center;margin-top:1rem">
+            <div style="font-size:2rem;margin-bottom:0.5rem">📁</div>
+            <div style="color:#E2E8F0;font-size:1.05rem;font-weight:600;margin-bottom:0.4rem">
+                Nenhum dado carregado
+            </div>
+            <div style="color:#94A3B8;font-size:0.88rem">
+                Aceda a <strong style="color:#F59E0B">Gestão de Dados</strong> no menu lateral
+                para carregar um ficheiro CSV ou Excel e iniciar a análise.
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.info("Nenhum dado carregado. Aceda a **Gestão de Dados** para carregar um ficheiro.")
+    st.stop()
+
+
+if st.session_state.scored_df is not None:
+    df      = st.session_state.scored_df
+    prov_df = st.session_state.provider_df
+    mem_df  = st.session_state.member_df
+
+    RISK_COLORS = {"High": "#EF4444", "Medium": "#F59E0B", "Low": "#22C55E"}
+    RISK_PT     = {"High": "Alto", "Medium": "Médio", "Low": "Baixo"}
+
+    # ── Painel de Controlo ─────────────────────────────────────────────────────
+    if page == "Painel de Controlo":
+        total        = len(df)
+        high         = (df["risk_level"] == "High").sum()
+        medium       = (df["risk_level"] == "Medium").sum()
+        low          = (df["risk_level"] == "Low").sum()
+        flagged_pct  = (high + medium) / total * 100 if total > 0 else 0
+        total_amt    = pd.to_numeric(df["claim_amount"], errors="coerce").sum()
+        high_risk_amt = pd.to_numeric(df[df["risk_level"] == "High"]["claim_amount"], errors="coerce").sum()
+
+        c1, c2, c3, c4, c5 = st.columns(5)
+        kpis = [
+            (c1, f"{total:,}",            "Total de Solicitações",    "kpi-blue"),
+            (c2, f"{high:,}",             "Risco Alto",            "kpi-high"),
+            (c3, f"{medium:,}",           "Risco Médio",           "kpi-medium"),
+            (c4, f"{flagged_pct:.1f}%",   "Taxa Sinalizada",       "kpi-medium"),
+            (c5, f"${high_risk_amt:,.0f}", "Valor em Risco Alto",  "kpi-high"),
+        ]
+        for col, val, label, cls in kpis:
+            with col:
+                st.markdown(f"""<div class="card">
+                    <div class="kpi-value {cls}">{val}</div>
+                    <div class="kpi-label">{label}</div>
+                </div>""", unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        # ── Distribuição de risco: barra + 3 cards ────────────────────────────
+        high_pct   = round(high   / total * 100, 2) if total > 0 else 0
+        medium_pct = round(medium / total * 100, 2) if total > 0 else 0
+        low_pct    = round(low    / total * 100, 2) if total > 0 else 0
+
+        high_mw   = "4px" if high > 0 else "0"
+        medium_mw = "4px" if medium > 0 else "0"
+
+        # Barra horizontal proporcional
+        bar_html = (
+            f'<div style="display:flex;height:28px;border-radius:8px;overflow:hidden;gap:2px;margin-bottom:1.2rem">'
+            f'<div style="width:{high_pct}%;background:#EF4444;min-width:{high_mw}"></div>'
+            f'<div style="width:{medium_pct}%;background:#F59E0B;min-width:{medium_mw}"></div>'
+            f'<div style="flex:1;background:#22C55E"></div>'
+            f'</div>'
+        )
+
+        # Card helper
+        def risk_card(bg, border, dot, label, count, pct, bar_color):
+            return (
+                f'<div style="background:{bg};border:1px solid {border};border-radius:10px;padding:1rem">'
+                f'<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">'
+                f'<div style="width:10px;height:10px;border-radius:50%;background:{dot};flex-shrink:0"></div>'
+                f'<span style="color:#94A3B8;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.06em">{label}</span>'
+                f'</div>'
+                f'<div style="font-size:2rem;font-weight:800;color:{dot};line-height:1">{count:,}</div>'
+                f'<div style="font-size:0.82rem;color:#64748B;margin-top:0.3rem">{pct:.1f}% do total</div>'
+                f'<div style="margin-top:0.7rem;height:4px;background:#2D3F50;border-radius:2px">'
+                f'<div style="width:{max(pct,1):.1f}%;height:100%;background:{bar_color};border-radius:2px"></div>'
+                f'</div>'
+                f'</div>'
+            )
+
+        cards_html = (
+            '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.8rem">'
+            + risk_card("#2D1515", "#EF444440", "#EF4444", "Alto Risco",  high,   high_pct,   "#EF4444")
+            + risk_card("#2D2415", "#F59E0B40", "#F59E0B", "Risco Médio", medium, medium_pct, "#F59E0B")
+            + risk_card("#152D1A", "#22C55E40", "#22C55E", "Baixo Risco", low,    low_pct,    "#22C55E")
+            + '</div>'
+        )
+
+        wrapper = (
+            '<div style="background:#1E2D3D;border:1px solid #2D3F50;border-radius:12px;padding:1.4rem 1.8rem;margin-bottom:1rem">'
+            f'<div style="color:#94A3B8;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.8rem">'
+            f'Distribuição de Risco &mdash; {total:,} solicitações analisadas</div>'
+            + bar_html + cards_html +
+            '</div>'
+        )
+        st.markdown(wrapper, unsafe_allow_html=True)
+
+        st.subheader("Top 10 Solicitações de Alto Risco")
+        top10 = df[df["risk_level"] == "High"].nlargest(10, "risk_score")
+        display_cols = [c for c in ["claim_id", "member_id", "provider_id", "claim_date",
+                                    "claim_amount", "risk_score", "risk_flags"] if c in top10.columns]
+        for _, row in top10[display_cols].iterrows():
+            score = row.get("risk_score", 0)
+            flags = row.get("risk_flags", "")
+            amt   = row.get("claim_amount", 0)
+            st.markdown(f"""<div class="alert-high">
+                <strong>Solicitação {row.get('claim_id','N/D')}</strong> &nbsp;|&nbsp;
+                Benef.: {row.get('member_id','N/D')} &nbsp;|&nbsp;
+                Prestador: {row.get('provider_id','N/D')} &nbsp;|&nbsp;
+                Valor: <strong>${amt:,.2f}</strong> &nbsp;|&nbsp;
+                Risco: <strong style="color:#EF4444">{score:.0f}</strong><br>
+                <span style="color:#94A3B8;font-size:0.82rem">{flags}</span>
+            </div>""", unsafe_allow_html=True)
+
+        if "claim_date" in df.columns and df["claim_date"].notna().any():
+            st.subheader("Evolução Mensal de Solicitações")
+            trend = df.groupby([df["claim_date"].dt.to_period("M"), "risk_level"], observed=True)["claim_id"].count().reset_index()
+            trend["claim_date"] = trend["claim_date"].astype(str)
+            fig_trend = px.bar(
+                trend, x="claim_date", y="claim_id", color="risk_level",
+                color_discrete_map=RISK_COLORS,
+                labels={"claim_id": "Solicitações", "claim_date": "Mês", "risk_level": "Nível de Risco"},
+                title="Solicitações Mensais por Nível de Risco",
+            )
+            fig_trend.update_layout(
+                paper_bgcolor="#1E2D3D", plot_bgcolor="#1E2D3D",
+                font_color="#E2E8F0", xaxis_tickangle=-45, height=320,
+                margin=dict(t=40, b=60, l=10, r=10),
+            )
+            st.plotly_chart(fig_trend, width='stretch')
+
+
+    # ── Análise de Solicitações ───────────────────────────────────────────────────
+    elif page == "Análise de Solicitações":
+        st.title("Análise de Solicitações")
+
+        # ── Filtros em card ────────────────────────────────────────────────────
+        st.markdown("""
+        <div style="background:#1E2D3D;border:1px solid #2D3F50;border-radius:10px;
+                    padding:1rem 1.4rem 0.3rem 1.4rem;margin-bottom:1rem">
+            <div style="color:#94A3B8;font-size:0.7rem;text-transform:uppercase;
+                        letter-spacing:0.08em;margin-bottom:0.6rem">Filtros</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        fc1, fc2, fc3, fc4 = st.columns([1.2, 1, 1, 1])
+        with fc1:
+            risk_filter = st.multiselect("Nível de Risco", ["High", "Medium", "Low"],
+                                         default=["High", "Medium"],
+                                         format_func=lambda x: RISK_PT[x])
+        with fc2:
+            min_score = st.slider("Pontuação Mínima", 0, 100, 40)
+        with fc3:
+            if "provider_id" in df.columns:
+                providers = ["Todos"] + sorted(df["provider_id"].astype(str).unique().tolist())
+                prov_filter = st.selectbox("Prestador", providers)
+            else:
+                prov_filter = "Todos"
+        with fc4:
+            if "claim_date" in df.columns and df["claim_date"].notna().any():
+                min_d = df["claim_date"].min().date()
+                max_d = df["claim_date"].max().date()
+                date_range = st.date_input("Período", value=(min_d, max_d),
+                                           min_value=min_d, max_value=max_d)
+            else:
+                date_range = None
+
+        # Apply filters
+        filtered = df[df["risk_level"].isin(risk_filter) & (df["risk_score"] >= min_score)]
+        if prov_filter != "Todos":
+            filtered = filtered[filtered["provider_id"].astype(str) == prov_filter]
+        if date_range and len(date_range) == 2 and "claim_date" in df.columns:
+            filtered = filtered[
+                (filtered["claim_date"].dt.date >= date_range[0]) &
+                (filtered["claim_date"].dt.date <= date_range[1])
+            ]
+
+        # ── Mini KPIs da filtragem ─────────────────────────────────────────────
+        f_high   = (filtered["risk_level"] == "High").sum()
+        f_medium = (filtered["risk_level"] == "Medium").sum()
+        f_amt    = pd.to_numeric(filtered.get("claim_amount", pd.Series()), errors="coerce").sum()
+        f_avg    = pd.to_numeric(filtered.get("claim_amount", pd.Series()), errors="coerce").mean()
+
+        mk1, mk2, mk3, mk4, mk5 = st.columns(5)
+        mini_kpis = [
+            (mk1, f"{len(filtered):,}",  "Solicitações filtradas",   "#3B82F6"),
+            (mk2, f"{f_high:,}",         "Alto Risco",         "#EF4444"),
+            (mk3, f"{f_medium:,}",       "Risco Médio",        "#F59E0B"),
+            (mk4, f"${f_amt:,.0f}",      "Valor Total",        "#A78BFA"),
+            (mk5, f"${f_avg:,.0f}",      "Valor Médio",        "#22C55E"),
+        ]
+        for col, val, lbl, clr in mini_kpis:
+            with col:
+                st.markdown(
+                    f'<div style="background:#1E2D3D;border:1px solid #2D3F50;border-top:3px solid {clr};'
+                    f'border-radius:8px;padding:0.7rem 0.9rem;margin-bottom:0.5rem">'
+                    f'<div style="font-size:1.4rem;font-weight:700;color:{clr}">{val}</div>'
+                    f'<div style="font-size:0.72rem;color:#64748B;text-transform:uppercase;'
+                    f'letter-spacing:0.05em;margin-top:2px">{lbl}</div></div>',
+                    unsafe_allow_html=True,
+                )
+
+        st.markdown("---")
+
+        # ── Visualização: cards de alto risco + tabela ─────────────────────────
+        tab1, tab2 = st.tabs(["🃏  Vista em Cards", "📋  Vista em Tabela"])
+
+        display_cols = [c for c in ["claim_id", "member_id", "provider_id", "claim_date",
+                                     "claim_amount", "risk_score", "risk_level", "risk_flags"]
+                        if c in filtered.columns]
+        sorted_df = filtered[display_cols].sort_values("risk_score", ascending=False).head(500)
+
+        with tab1:
+            # Show top flagged solicitações as styled cards
+            top_cards = sorted_df.head(30)
+            if len(top_cards) == 0:
+                st.info("Nenhum solicitação corresponde aos filtros seleccionados.")
+            else:
+                for _, row in top_cards.iterrows():
+                    score   = row.get("risk_score", 0)
+                    level   = row.get("risk_level", "Low")
+                    flags   = row.get("risk_flags", "Sem sinais específicos detectados")
+                    amt     = row.get("claim_amount", 0)
+                    clr     = "#EF4444" if level == "High" else "#F59E0B" if level == "Medium" else "#22C55E"
+                    bg      = "#2D1515" if level == "High" else "#2D2415" if level == "Medium" else "#152D1A"
+                    lvl_pt  = RISK_PT.get(level, level)
+
+                    # Score bar width
+                    bar_w = int(score)
+
+                    st.markdown(
+                        f'<div style="background:{bg};border:1px solid {clr}33;border-left:4px solid {clr};'
+                        f'border-radius:10px;padding:0.9rem 1.2rem;margin-bottom:0.5rem">'
+                        f'<div style="display:flex;justify-content:space-between;align-items:flex-start">'
+                        f'<div>'
+                        f'<span style="font-size:1rem;font-weight:700;color:#F1F5F9">Solicitação {row.get("claim_id","N/D")}</span>'
+                        f'<span style="margin-left:0.8rem;background:{clr}22;color:{clr};font-size:0.72rem;'
+                        f'font-weight:700;padding:2px 10px;border-radius:20px;border:1px solid {clr}55">{lvl_pt}</span>'
+                        f'</div>'
+                        f'<div style="font-size:1.3rem;font-weight:800;color:{clr}">{score:.0f}<span style="font-size:0.7rem;color:#64748B">/100</span></div>'
+                        f'</div>'
+                        f'<div style="margin-top:0.4rem;height:3px;background:#2D3F50;border-radius:2px">'
+                        f'<div style="width:{bar_w}%;height:100%;background:{clr};border-radius:2px;transition:width 0.3s"></div>'
+                        f'</div>'
+                        f'<div style="display:flex;gap:1.5rem;margin-top:0.5rem;flex-wrap:wrap">'
+                        f'<span style="color:#64748B;font-size:0.8rem">Benef.: <strong style="color:#CBD5E1">{row.get("member_id","N/D")}</strong></span>'
+                        f'<span style="color:#64748B;font-size:0.8rem">Prestador: <strong style="color:#CBD5E1">{row.get("provider_id","N/D")}</strong></span>'
+                        f'<span style="color:#64748B;font-size:0.8rem">Valor: <strong style="color:#CBD5E1">${amt:,.2f}</strong></span>'
+                        f'<span style="color:#64748B;font-size:0.8rem">Data: <strong style="color:#CBD5E1">{str(row.get("claim_date",""))[:10]}</strong></span>'
+                        f'</div>'
+                        f'<div style="margin-top:0.4rem;font-size:0.78rem;color:#94A3B8;font-style:italic">{flags}</div>'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+
+        with tab2:
+            def style_risk(val):
+                if val == "High":   return "background-color:#2D1515;color:#EF4444;font-weight:bold"
+                elif val == "Medium": return "background-color:#2D2415;color:#F59E0B;font-weight:bold"
+                return "background-color:#152D1A;color:#22C55E;font-weight:bold"
+
+            if "risk_level" in sorted_df.columns:
+                st.dataframe(
+                    sorted_df.style.applymap(style_risk, subset=["risk_level"]),
+                    width='stretch', height=520,
+                )
+            else:
+                st.dataframe(sorted_df, width='stretch', height=520)
+
+        # ── Exportar ───────────────────────────────────────────────────────────
+        st.markdown("---")
+        st.subheader("Exportar Resultados")
+        ec1, ec2, ec3 = st.columns(3)
+        with ec1:
+            xlsx = exporter.to_excel(df, prov_df, mem_df, df)
+            st.download_button("📥 Descarregar Excel", xlsx, "relatorio_solicitaçãos.xlsx",
+                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                               use_container_width=True)
+        with ec2:
+            csv_bytes = exporter.to_csv(df)
+            st.download_button("📥 Descarregar CSV", csv_bytes, "solicitaçãos_sinalizados.csv",
+                               "text/csv", use_container_width=True)
+        with ec3:
+            pdf_bytes = exporter.to_pdf(df, prov_df, mem_df)
+            st.download_button("📥 Descarregar PDF", pdf_bytes, "relatorio_investigacao.pdf",
+                               "application/pdf", use_container_width=True)
+
+
+    # ── Inteligência de Prestadores ────────────────────────────────────────────
+    elif page == "Inteligência de Prestadores":
+        st.title("Inteligência de Prestadores")
+
+        if prov_df is None or len(prov_df) == 0:
+            st.warning("Dados de prestadores não disponíveis.")
+            st.stop()
+
+        top_n = st.slider("Mostrar os N prestadores com maior risco", 5, 50, 20)
+        top_prov = prov_df.nlargest(top_n, "provider_risk_score")
+
+        top_prov_sorted = top_prov.sort_values("provider_risk_score", ascending=True)
+        prov_colors = [
+            "#EF4444" if v >= 70 else "#F59E0B" if v >= 40 else "#22C55E"
+            for v in top_prov_sorted["provider_risk_score"]
+        ]
+        fig_bar = go.Figure(go.Bar(
+            x=top_prov_sorted["provider_risk_score"],
+            y=top_prov_sorted["provider_id"].astype(str),
+            orientation="h",
+            marker=dict(color=prov_colors, line=dict(color="#0F1923", width=1)),
+            text=[f"{v:.0f}" for v in top_prov_sorted["provider_risk_score"]],
+            textposition="outside",
+            textfont=dict(color="#E2E8F0", size=11),
+            hovertemplate="<b>%{y}</b><br>Pontuação: %{x:.1f}<extra></extra>",
+        ))
+        fig_bar.update_layout(
+            title=dict(
+                text=f"Top {top_n} Prestadores por Pontuação de Risco",
+                font=dict(size=14, color="#94A3B8"), x=0.5, xanchor="center",
+            ),
+            paper_bgcolor="#1E2D3D", plot_bgcolor="#1E2D3D",
+            font_color="#E2E8F0",
+            xaxis=dict(
+                range=[0, 115], showgrid=True, gridcolor="#243447",
+                zeroline=False, tickfont=dict(color="#64748B"),
+                title=dict(text="Pontuação de Risco", font=dict(size=11, color="#64748B")),
+            ),
+            yaxis=dict(showgrid=False, tickfont=dict(color="#CBD5E1", size=11)),
+            margin=dict(t=50, b=20, l=120, r=60),
+            height=max(320, top_n * 28),
+            showlegend=False,
+        )
+        st.plotly_chart(fig_bar, width='stretch')
+
+        st.subheader("Detalhe do Prestador")
+        sel_provider = st.selectbox("Seleccionar prestador", prov_df["provider_id"].astype(str).tolist())
+        prov_row = prov_df[prov_df["provider_id"].astype(str) == sel_provider]
+
+        if len(prov_row) > 0:
+            r = prov_row.iloc[0]
+            p1, p2, p3, p4 = st.columns(4)
+            p1.metric("Pontuação de Risco",  f"{r.get('provider_risk_score', 0):.1f}")
+            p2.metric("Total de Solicitações",  f"{int(r.get('solicitação_count', 0)):,}")
+            p3.metric("Valor Médio",         f"${r.get('avg_amount', 0):,.2f}")
+            p4.metric("Taxa de Duplicados",  f"{r.get('dup_rate', 0)*100:.1f}%")
+
+            flags = r.get("provider_flags", "")
+            if flags:
+                for f in flags.split(";"):
+                    if f.strip():
+                        st.markdown(f'<div class="alert-high">{f.strip()}</div>', unsafe_allow_html=True)
+
+            provider_solicitaçãos = df[df["provider_id"].astype(str) == sel_provider]
+            if len(provider_solicitaçãos) > 0:
+                st.caption(f"{len(provider_solicitaçãos):,} solicitações deste prestador")
+                show_cols = [c for c in ["claim_id", "member_id", "claim_date",
+                                          "claim_amount", "risk_score", "risk_level"]
+                             if c in provider_solicitaçãos.columns]
+                st.dataframe(provider_solicitaçãos[show_cols].sort_values("risk_score", ascending=False).head(100),
+                             width='stretch')
+
+        if "avg_amount" in prov_df.columns and "solicitação_count" in prov_df.columns:
+            fig_scatter = px.scatter(
+                prov_df,
+                x="solicitação_count", y="avg_amount",
+                size="provider_risk_score", color="provider_risk_score",
+                hover_data=["provider_id"],
+                color_continuous_scale=[[0, "#22C55E"], [0.5, "#F59E0B"], [1, "#EF4444"]],
+                title="Risco do Prestador: Volume de Solicitações vs. Valor Médio",
+                labels={"solicitação_count": "Número de Solicitações", "avg_amount": "Valor Médio ($)"},
+            )
+            fig_scatter.update_layout(
+                paper_bgcolor="#1E2D3D", plot_bgcolor="#1E2D3D",
+                font_color="#E2E8F0", height=400,
+                coloraxis_colorbar_title="Risco",
+            )
+            st.plotly_chart(fig_scatter, width='stretch')
+
+
+    # ── Análise de Beneficiários ───────────────────────────────────────────────
+    elif page == "Análise de Beneficiários":
+        st.title("Análise de Utilização por Beneficiário")
+
+        if mem_df is None or len(mem_df) == 0:
+            st.warning("Dados de beneficiários não disponíveis.")
+            st.stop()
+
+        top_n_mem = st.slider("Mostrar os N beneficiários com maior risco", 5, 50, 20)
+        top_mem = mem_df.nlargest(top_n_mem, "member_risk_score")
+
+        top_mem_sorted = top_mem.sort_values("member_risk_score", ascending=True)
+        bar_colors = [
+            "#EF4444" if v >= 70 else "#F59E0B" if v >= 40 else "#22C55E"
+            for v in top_mem_sorted["member_risk_score"]
+        ]
+        fig_mem = go.Figure(go.Bar(
+            x=top_mem_sorted["member_risk_score"],
+            y=top_mem_sorted["member_id"].astype(str),
+            orientation="h",
+            marker=dict(color=bar_colors, line=dict(color="#0F1923", width=1)),
+            text=[f"{v:.0f}" for v in top_mem_sorted["member_risk_score"]],
+            textposition="outside",
+            textfont=dict(color="#E2E8F0", size=11),
+            hovertemplate="<b>%{y}</b><br>Pontuação: %{x:.1f}<extra></extra>",
+        ))
+        fig_mem.update_layout(
+            title=dict(
+                text=f"Top {top_n_mem} Beneficiários por Pontuação de Risco",
+                font=dict(size=14, color="#94A3B8"), x=0.5, xanchor="center",
+            ),
+            paper_bgcolor="#1E2D3D", plot_bgcolor="#1E2D3D",
+            font_color="#E2E8F0",
+            xaxis=dict(
+                range=[0, 115], showgrid=True, gridcolor="#243447",
+                zeroline=False, tickfont=dict(color="#64748B"),
+                title=dict(text="Pontuação de Risco", font=dict(size=11, color="#64748B")),
+            ),
+            yaxis=dict(showgrid=False, tickfont=dict(color="#CBD5E1", size=11)),
+            margin=dict(t=50, b=20, l=120, r=60),
+            height=max(320, top_n_mem * 28),
+            showlegend=False,
+        )
+        st.plotly_chart(fig_mem, width='stretch')
+
+        if "distinct_providers" in mem_df.columns and "total_spend" in mem_df.columns:
+            fig_shop = px.scatter(
+                mem_df,
+                x="distinct_providers", y="total_spend",
+                color="member_risk_score",
+                size="solicitação_count",
+                hover_data=["member_id"],
+                color_continuous_scale=[[0, "#22C55E"], [0.5, "#F59E0B"], [1, "#EF4444"]],
+                title="Padrão de Utilização: Prestadores Distintos vs. Gasto Total",
+                labels={"distinct_providers": "Prestadores Distintos", "total_spend": "Gasto Total ($)"},
+            )
+            fig_shop.update_layout(
+                paper_bgcolor="#1E2D3D", plot_bgcolor="#1E2D3D",
+                font_color="#E2E8F0", height=400,
+            )
+            st.plotly_chart(fig_shop, width='stretch')
+
+        st.subheader("Beneficiários de Alto Risco")
+        m_cols = [c for c in ["member_id", "member_risk_score", "solicitação_count", "total_spend",
+                               "distinct_providers", "member_flags"] if c in mem_df.columns]
+        st.dataframe(
+            mem_df[m_cols].sort_values("member_risk_score", ascending=False).head(200),
+            width='stretch',
+        )
+
+
+    # ── Custos Atípicos ────────────────────────────────────────────────────────
+    elif page == "Custos Atípicos":
+        st.title("Análise de Custos Atípicos")
+
+        if "cost_outlier_score" not in df.columns:
+            st.warning("Pontuações de custos atípicos não disponíveis.")
+            st.stop()
+
+        profile = st.session_state.profile
+        benchmark_label = (
+            "código de procedimento" if profile.has_procedure_code else
+            "especialidade do prestador" if profile.has_provider_specialty else
+            "carteira global"
+        )
+        st.info(f"Grupo de referência (benchmark): **{benchmark_label}**")
+
+        scatter_df = df.copy()
+        scatter_df["_amount"] = pd.to_numeric(scatter_df["claim_amount"], errors="coerce")
+
+        if "peer_mean" in scatter_df.columns:
+            fig_scatter = px.scatter(
+                scatter_df,
+                x="peer_mean", y="_amount",
+                color="risk_level",
+                color_discrete_map=RISK_COLORS,
+                hover_data=[c for c in ["claim_id", "provider_id", "risk_score"] if c in scatter_df.columns],
+                title="Valor do Solicitação vs. Referência de Pares",
+                labels={"peer_mean": "Média de Pares ($)", "_amount": "Valor Facturado ($)",
+                        "risk_level": "Nível de Risco"},
+                opacity=0.7,
+            )
+            max_val = max(scatter_df["_amount"].max(), scatter_df["peer_mean"].max())
+            fig_scatter.add_shape(type="line", x0=0, y0=0, x1=max_val, y1=max_val,
+                                  line=dict(color="#3B82F6", dash="dash", width=1))
+            fig_scatter.update_layout(
+                paper_bgcolor="#1E2D3D", plot_bgcolor="#1E2D3D",
+                font_color="#E2E8F0", height=450,
+            )
+            st.plotly_chart(fig_scatter, width='stretch')
+
+        fig_dist = px.histogram(
+            scatter_df, x="_amount", nbins=60,
+            color="risk_level",
+            color_discrete_map=RISK_COLORS,
+            title="Distribuição dos Valores dos Solicitações por Nível de Risco",
+            labels={"_amount": "Valor do Solicitação ($)", "risk_level": "Nível de Risco"},
+            barmode="overlay", opacity=0.8,
+        )
+        fig_dist.update_layout(
+            paper_bgcolor="#1E2D3D", plot_bgcolor="#1E2D3D",
+            font_color="#E2E8F0", height=350,
+        )
+        st.plotly_chart(fig_dist, width='stretch')
+
+        st.subheader("Principais Solicitações com Custos Atípicos")
+        outlier_cols = [c for c in ["claim_id", "member_id", "provider_id", "claim_amount",
+                                     "peer_mean", "cost_outlier_score", "risk_level", "risk_flags"]
+                        if c in df.columns]
+        top_outliers = df.nlargest(100, "cost_outlier_score")[outlier_cols]
+        st.dataframe(top_outliers, width='stretch')
+
+
+    # ── Relatório por Beneficiário ─────────────────────────────────────────────
+    elif page == "Relatório por Beneficiário":
+        st.title("Relatório de Risco por Beneficiário")
+        st.caption("Seleccione um beneficiário para gerar o seu perfil de risco completo e exportar em PDF ou Excel.")
+
+        if mem_df is None or len(mem_df) == 0:
+            st.warning("Dados de beneficiários não disponíveis.")
+            st.stop()
+
+        # Selector
+        RISK_PT = {"High": "Alto", "Medium": "Médio", "Low": "Baixo"}
+        members_sorted = mem_df.sort_values("member_risk_score", ascending=False)["member_id"].astype(str).tolist()
+        sel_member = st.selectbox("Seleccionar Beneficiário", members_sorted,
+                                  format_func=lambda m: f"{m}  —  Risco: {mem_df[mem_df['member_id'].astype(str)==m]['member_risk_score'].values[0]:.0f}/100")
+
+        mem_row = mem_df[mem_df["member_id"].astype(str) == sel_member]
+        mem_solicitaçãos = df[df["member_id"].astype(str) == sel_member].sort_values("risk_score", ascending=False)
+
+        if len(mem_row) == 0:
+            st.warning("Beneficiário não encontrado.")
+            st.stop()
+
+        r = mem_row.iloc[0]
+        risk_score = r.get("member_risk_score", 0)
+        risk_level = "Alto" if risk_score >= 70 else "Médio" if risk_score >= 40 else "Baixo"
+        risk_color = "#EF4444" if risk_score >= 70 else "#F59E0B" if risk_score >= 40 else "#22C55E"
+        risk_bg    = "#2D1515" if risk_score >= 70 else "#2D2415" if risk_score >= 40 else "#152D1A"
+
+        # ── Cabeçalho do relatório ─────────────────────────────────────────────
+        st.markdown(f"""
+        <div style="background:#1E2D3D;border:1px solid #2D3F50;border-left:5px solid {risk_color};
+                    border-radius:12px;padding:1.4rem 1.8rem;margin-bottom:1.2rem;display:flex;
+                    align-items:center;gap:1.5rem">
+            <div style="background:{risk_bg};border:2px solid {risk_color};border-radius:50%;
+                        width:64px;height:64px;display:flex;align-items:center;justify-content:center;
+                        font-size:1.6rem;font-weight:800;color:{risk_color};flex-shrink:0">{risk_score:.0f}</div>
+            <div>
+                <div style="font-size:1.3rem;font-weight:700;color:#F1F5F9">Beneficiário: {sel_member}</div>
+                <div style="font-size:0.9rem;color:{risk_color};font-weight:600;margin-top:2px">
+                    Nível de Risco: {risk_level}</div>
+                <div style="font-size:0.82rem;color:#64748B;margin-top:2px">
+                    {int(r.get('solicitação_count',0)):,} solicitações &bull;
+                    Gasto total: ${r.get('total_spend',0):,.2f} &bull;
+                    {int(r.get('distinct_providers',0))} prestadores distintos</div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # ── KPIs do beneficiário ───────────────────────────────────────────────
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("Pontuação de Risco",      f"{risk_score:.1f} / 100")
+        k2.metric("Total de Solicitações",         f"{int(r.get('solicitação_count', 0)):,}")
+        k3.metric("Gasto Total",             f"${r.get('total_spend', 0):,.2f}")
+        k4.metric("Prestadores Distintos",   f"{int(r.get('distinct_providers', 0))}")
+
+        st.markdown("---")
+
+        # ── Sinais de risco ───────────────────────────────────────────────────
+        flags_raw = r.get("member_flags", "")
+        flags_list = [f.strip() for f in flags_raw.split(";") if f.strip()]
+
+        if flags_list:
+            st.subheader("Sinais de Risco Detectados")
+            for flag in flags_list:
+                alert_cls = "alert-high" if risk_score >= 70 else "alert-medium"
+                st.markdown(f'<div class="{alert_cls}">&#9888; {flag}</div>', unsafe_allow_html=True)
+        else:
+            st.success("Nenhum sinal de risco específico detectado para este beneficiário.")
+
+        st.markdown("---")
+
+        # ── Solicitações do beneficiário ────────────────────────────────────────────
+        st.subheader(f"Solicitações do Beneficiário ({len(mem_solicitaçãos):,} registos)")
+
+        show_cols = [c for c in ["claim_id", "provider_id", "claim_date", "claim_amount",
+                                  "risk_score", "risk_level", "risk_flags"] if c in mem_solicitaçãos.columns]
+
+        def style_risk(val):
+            if val == "High":   return "background-color:#2D1515;color:#EF4444;font-weight:bold"
+            elif val == "Medium": return "background-color:#2D2415;color:#F59E0B;font-weight:bold"
+            return "background-color:#152D1A;color:#22C55E;font-weight:bold"
+
+        if "risk_level" in mem_solicitaçãos.columns:
+            st.dataframe(
+                mem_solicitaçãos[show_cols].style.applymap(style_risk, subset=["risk_level"]),
+                width='stretch', height=350,
+            )
+        else:
+            st.dataframe(mem_solicitaçãos[show_cols], width='stretch', height=350)
+
+        # ── Gráfico: evolução de gastos ───────────────────────────────────────
+        if "claim_date" in mem_solicitaçãos.columns and mem_solicitaçãos["claim_date"].notna().any():
+            st.subheader("Evolução de Gastos")
+            timeline = mem_solicitaçãos.groupby(
+                mem_solicitaçãos["claim_date"].dt.to_period("M"), observed=True
+            )["claim_amount"].sum().reset_index()
+            timeline["claim_date"] = timeline["claim_date"].astype(str)
+            fig_tl = px.bar(
+                timeline, x="claim_date", y="claim_amount",
+                labels={"claim_date": "Mês", "claim_amount": "Valor ($)"},
+                title="Gasto Mensal do Beneficiário",
+                color_discrete_sequence=["#3B82F6"],
+            )
+            fig_tl.update_layout(
+                paper_bgcolor="#1E2D3D", plot_bgcolor="#1E2D3D",
+                font_color="#E2E8F0", height=280,
+                xaxis_tickangle=-45,
+                margin=dict(t=40, b=50, l=10, r=10),
+            )
+            st.plotly_chart(fig_tl, width='stretch')
+
+        st.markdown("---")
+
+        # ── Exportar relatório individual ─────────────────────────────────────
+        st.subheader("Exportar Relatório Individual")
+        ex1, ex2 = st.columns(2)
+
+        with ex1:
+            # PDF individual do beneficiário
+            from modules.exporter import to_pdf
+            member_scored = df[df["member_id"].astype(str) == sel_member]
+            pdf_bytes = to_pdf(member_scored, prov_df, mem_df)
+            st.download_button(
+                "📥 Descarregar PDF do Beneficiário",
+                pdf_bytes,
+                f"relatorio_{sel_member}.pdf",
+                "application/pdf",
+                use_container_width=True,
+            )
+
+        with ex2:
+            # Excel individual
+            from io import BytesIO
+            from openpyxl import Workbook as OWorkbook
+            from openpyxl.styles import PatternFill, Font, Alignment
+            from openpyxl.utils import get_column_letter
+
+            def member_excel(member_id, solicitações_df, mem_info):
+                wb = OWorkbook()
+                ws = wb.active
+                ws.title = "Perfil de Risco"
+                navy = PatternFill("solid", fgColor="FF0F1923")
+                white_font = Font(color="FFFFFFFF", bold=True)
+
+                # Summary block
+                ws.append(["RELATÓRIO DE RISCO — BENEFICIÁRIO", member_id])
+                ws.append(["Pontuação de Risco", f"{mem_info.get('member_risk_score', 0):.1f} / 100"])
+                ws.append(["Nível de Risco", risk_level])
+                ws.append(["Total de Solicitações", int(mem_info.get("solicitação_count", 0))])
+                ws.append(["Gasto Total", f"${mem_info.get('total_spend', 0):,.2f}"])
+                ws.append(["Prestadores Distintos", int(mem_info.get("distinct_providers", 0))])
+                ws.append(["Sinais de Risco", flags_raw or "Nenhum"])
+                ws.append([])
+
+                # Solicitações table
+                cols = [c for c in ["claim_id", "provider_id", "claim_date", "claim_amount",
+                                    "risk_score", "risk_level", "risk_flags"] if c in solicitações_df.columns]
+                ws.append(cols)
+                for cell in ws[ws.max_row]:
+                    cell.fill = navy
+                    cell.font = white_font
+
+                for row_data in solicitações_df[cols].itertuples(index=False):
+                    ws.append(list(row_data))
+
+                for i in range(1, len(cols) + 1):
+                    ws.column_dimensions[get_column_letter(i)].width = 20
+
+                buf = BytesIO()
+                wb.save(buf)
+                return buf.getvalue()
+
+            xlsx_bytes = member_excel(sel_member, mem_solicitaçãos, r)
+            st.download_button(
+                "📥 Descarregar Excel do Beneficiário",
+                xlsx_bytes,
+                f"relatorio_{sel_member}.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
