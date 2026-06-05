@@ -218,6 +218,98 @@ def run_analysis(df_raw: pd.DataFrame):
 if page == "Gestão de Dados":
     st.title("Gestão de Dados")
 
+    # ── Dados de demonstração ──────────────────────────────────────────────────
+    st.markdown("""
+    <div style="background:linear-gradient(135deg,#1E3A2F 0%,#162030 100%);
+                border:1px solid #22C55E40;border-radius:10px;
+                padding:1rem 1.4rem;margin-bottom:1.2rem">
+        <div style="font-size:1rem;font-weight:700;color:#22C55E;margin-bottom:0.3rem">
+            🧪 Experimente com Dados de Demonstração
+        </div>
+        <div style="font-size:0.85rem;color:#94A3B8">
+            Carregue automaticamente 1.931 solicitações sintéticas com padrões de fraude injectados
+            — sem necessidade de ficheiro. Ideal para explorar todas as funcionalidades da plataforma.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if st.button("🚀  Carregar Dados de Demonstração", type="primary", use_container_width=True):
+        import random
+        rng = np.random.default_rng(42)
+        random.seed(42)
+        n_normal = 1800
+        specialties = ["Cardiologia","Ortopedia","Clínica Geral","Oncologia",
+                        "Neurologia","Radiologia","Fisioterapia","Psiquiatria"]
+        proc_codes  = ["99213","99214","99215","27447","93000","71046",
+                        "99232","90837","20610","70553","99283","43239"]
+        diag_codes  = ["Z00.00","I10","M54.5","E11.9","J06.9","K21.0",
+                        "F32.9","M17.11","G89.29","Z12.31","I25.10","N39.0"]
+        providers   = [f"PRV{str(i).zfill(4)}" for i in range(1, 41)]
+        fraud_provs = providers[:3]
+        members     = [f"MBR{str(i).zfill(5)}" for i in range(1, 301)]
+        fraud_mems  = members[:5]
+        prov_spec   = {p: random.choice(specialties) for p in providers}
+        mem_ages    = {m: random.randint(18, 80) for m in members}
+        mem_genders = {m: random.choice(["M","F"]) for m in members}
+
+        import datetime as _dt
+        start = _dt.date(2023, 1, 1)
+        def rdate(): return start + _dt.timedelta(days=int(rng.integers(0, 730)))
+        def ramt(mn=400, sd=250): return round(float(np.clip(rng.normal(mn, sd), 50, 8000)), 2)
+
+        rows = []
+        for i in range(n_normal):
+            cd = rdate(); p = random.choice(providers); m = random.choice(members); a = ramt()
+            rows.append({"claim_id": f"CLM{i+1:06d}", "member_id": m, "provider_id": p,
+                          "claim_date": str(cd), "service_date": str(cd - _dt.timedelta(days=random.randint(0,5))),
+                          "claim_amount": a, "paid_amount": round(a*random.uniform(0.7,0.95),2),
+                          "diagnosis_code": random.choice(diag_codes),
+                          "procedure_code": random.choice(proc_codes),
+                          "provider_specialty": prov_spec[p],
+                          "member_age": mem_ages[m], "member_gender": mem_genders[m],
+                          "claim_type": random.choice(["Médico","Farmácia","Dentário"])})
+        # Outliers
+        for i in range(30):
+            p = random.choice(fraud_provs); cd = rdate(); a = round(random.uniform(8000,25000),2)
+            rows.append({"claim_id": f"FRD{i+1:06d}", "member_id": random.choice(members),
+                          "provider_id": p, "claim_date": str(cd), "service_date": str(cd),
+                          "claim_amount": a, "paid_amount": round(a*0.9,2),
+                          "diagnosis_code": "I10", "procedure_code": "99215",
+                          "provider_specialty": prov_spec[p],
+                          "member_age": 45, "member_gender": "M", "claim_type": "Médico"})
+        # Duplicados
+        for dup in rows[:10]:
+            r = dup.copy(); r["claim_id"] = f"DUP{r['claim_id']}"; rows.append(r)
+        # Valores redondos
+        for i in range(25):
+            p = random.choice(fraud_provs); cd = rdate(); a = float(random.choice([500,1000,1500,2000,5000]))
+            rows.append({"claim_id": f"RND{i+1:06d}", "member_id": random.choice(members),
+                          "provider_id": p, "claim_date": str(cd), "service_date": str(cd),
+                          "claim_amount": a, "paid_amount": a*0.85, "diagnosis_code": random.choice(diag_codes),
+                          "procedure_code": "99215", "provider_specialty": prov_spec[p],
+                          "member_age": 40, "member_gender": "F", "claim_type": "Médico"})
+        # Multi-prestadores
+        many_provs = providers[5:25]
+        for mem in fraud_mems:
+            for j in range(12):
+                p = many_provs[j % len(many_provs)]; cd = rdate(); a = ramt(600,150)
+                rows.append({"claim_id": f"SHP{mem[-5:]}{j:03d}", "member_id": mem,
+                              "provider_id": p, "claim_date": str(cd), "service_date": str(cd),
+                              "claim_amount": a, "paid_amount": round(a*0.88,2),
+                              "diagnosis_code": random.choice(diag_codes),
+                              "procedure_code": random.choice(proc_codes),
+                              "provider_specialty": prov_spec[p],
+                              "member_age": mem_ages[mem], "member_gender": mem_genders[mem],
+                              "claim_type": "Médico"})
+
+        df_demo = pd.DataFrame(rows).sample(frac=1, random_state=42).reset_index(drop=True)
+        sid = save_session(df_demo, "dados_demonstracao.csv")
+        st.session_state.active_session = sid
+        run_analysis(df_demo)
+        st.rerun()
+
+    st.markdown("<hr style='border-color:#2D3F50;margin:1rem 0'>", unsafe_allow_html=True)
+
     col1, col2 = st.columns([1, 1])
 
     with col1:
@@ -779,7 +871,7 @@ if st.session_state.scored_df is not None:
 
             if "risk_level" in sorted_df.columns:
                 st.dataframe(
-                    sorted_df.style.applymap(style_risk, subset=["risk_level"]),
+                    sorted_df.style.map(style_risk, subset=["risk_level"]),
                     width='stretch', height=520,
                 )
             else:
@@ -1043,7 +1135,7 @@ if st.session_state.scored_df is not None:
                                   format_func=lambda m: f"{m}  —  Risco: {mem_df[mem_df['member_id'].astype(str)==m]['member_risk_score'].values[0]:.0f}/100")
 
         mem_row = mem_df[mem_df["member_id"].astype(str) == sel_member]
-        mem_solicitaçãos = df[df["member_id"].astype(str) == sel_member].sort_values("risk_score", ascending=False)
+        mem_claims = df[df["member_id"].astype(str) == sel_member].sort_values("risk_score", ascending=False)
 
         if len(mem_row) == 0:
             st.warning("Beneficiário não encontrado.")
@@ -1099,29 +1191,29 @@ if st.session_state.scored_df is not None:
         st.markdown("---")
 
         # ── Solicitações do beneficiário ────────────────────────────────────────────
-        st.subheader(f"Solicitações do Beneficiário ({len(mem_solicitaçãos):,} registos)")
+        st.subheader(f"Solicitações do Beneficiário ({len(mem_claims):,} registos)")
 
         show_cols = [c for c in ["claim_id", "provider_id", "claim_date", "claim_amount",
-                                  "risk_score", "risk_level", "risk_flags"] if c in mem_solicitaçãos.columns]
+                                  "risk_score", "risk_level", "risk_flags"] if c in mem_claims.columns]
 
         def style_risk(val):
             if val == "High":   return "background-color:#2D1515;color:#EF4444;font-weight:bold"
             elif val == "Medium": return "background-color:#2D2415;color:#F59E0B;font-weight:bold"
             return "background-color:#152D1A;color:#22C55E;font-weight:bold"
 
-        if "risk_level" in mem_solicitaçãos.columns:
+        if "risk_level" in mem_claims.columns:
             st.dataframe(
-                mem_solicitaçãos[show_cols].style.applymap(style_risk, subset=["risk_level"]),
+                mem_claims[show_cols].style.map(style_risk, subset=["risk_level"]),
                 width='stretch', height=350,
             )
         else:
-            st.dataframe(mem_solicitaçãos[show_cols], width='stretch', height=350)
+            st.dataframe(mem_claims[show_cols], width='stretch', height=350)
 
         # ── Gráfico: evolução de gastos ───────────────────────────────────────
-        if "claim_date" in mem_solicitaçãos.columns and mem_solicitaçãos["claim_date"].notna().any():
+        if "claim_date" in mem_claims.columns and mem_claims["claim_date"].notna().any():
             st.subheader("Evolução de Gastos")
-            timeline = mem_solicitaçãos.groupby(
-                mem_solicitaçãos["claim_date"].dt.to_period("M"), observed=True
+            timeline = mem_claims.groupby(
+                mem_claims["claim_date"].dt.to_period("M"), observed=True
             )["claim_amount"].sum().reset_index()
             timeline["claim_date"] = timeline["claim_date"].astype(str)
             fig_tl = px.bar(
@@ -1199,7 +1291,7 @@ if st.session_state.scored_df is not None:
                 wb.save(buf)
                 return buf.getvalue()
 
-            xlsx_bytes = member_excel(sel_member, mem_solicitaçãos, r)
+            xlsx_bytes = member_excel(sel_member, mem_claims, r)
             st.download_button(
                 "📥 Descarregar Excel do Beneficiário",
                 xlsx_bytes,
