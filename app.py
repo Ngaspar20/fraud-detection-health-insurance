@@ -194,16 +194,16 @@ def run_analysis(df_raw: pd.DataFrame):
         anomaly_res = fraud_detection.run(df, profile)
 
     with st.spinner("A calcular risco por prestador..."):
-        prov_solicitação_scores, provider_df = provider_risk.run(df, profile)
+        prov_claim_scores, provider_df = provider_risk.run(df, profile)
 
     with st.spinner("A analisar utilização por beneficiário..."):
-        mem_solicitação_scores, member_df = member_utilization.run(df, profile)
+        mem_claim_scores, member_df = member_utilization.run(df, profile)
 
     with st.spinner("A detectar custos atípicos..."):
         cost_res = cost_outlier.run(df, profile)
 
     with st.spinner("A calcular pontuação de risco composta..."):
-        scored = risk_scorer.compute(df, anomaly_res, prov_solicitação_scores, mem_solicitação_scores, cost_res)
+        scored = risk_scorer.compute(df, anomaly_res, prov_claim_scores, mem_claim_scores, cost_res)
 
     st.session_state.scored_df   = scored
     st.session_state.provider_df = provider_df
