@@ -165,14 +165,20 @@ def build_nav():
 
 with st.sidebar:
     # ── Language toggle ────────────────────────────────────────────────────────
+    st.markdown(
+        "<div style='padding:0.6rem 0.5rem 0.2rem 0.5rem;"
+        "font-size:0.7rem;color:#475569;text-transform:uppercase;"
+        "letter-spacing:0.08em'>Language</div>",
+        unsafe_allow_html=True,
+    )
     lc1, lc2 = st.columns(2)
     with lc1:
-        if st.button("🇲🇿  PT", use_container_width=True,
+        if st.button("PT", use_container_width=True,
                      type="primary" if st.session_state.lang == "pt" else "secondary"):
             st.session_state.lang = "pt"
             st.rerun()
     with lc2:
-        if st.button("🇬🇧  EN", use_container_width=True,
+        if st.button("EN", use_container_width=True,
                      type="primary" if st.session_state.lang == "en" else "secondary"):
             st.session_state.lang = "en"
             st.rerun()
@@ -351,12 +357,12 @@ if page == t("nav_data"):
     col1, col2 = st.columns([1, 1])
 
     with col1:
-        st.subheader("Carregar Novo Ficheiro de Solicitações")
+        st.subheader(t("data_upload_title"))
         uploaded = st.file_uploader("CSV ou Excel (.xlsx)", type=["csv", "xlsx"])
         contamination = st.slider("Sensibilidade a anomalias (% esperada de outliers)", 1, 20, 5) / 100
 
         if uploaded:
-            if st.button("Analisar Ficheiro", type="primary"):
+            if st.button(t("data_analyze_btn"), type="primary"):
                 df_raw = parse_upload(uploaded)
                 sid = save_session(df_raw, uploaded.name)
                 st.session_state.active_session = sid
@@ -364,7 +370,7 @@ if page == t("nav_data"):
                 st.rerun()
 
     with col2:
-        st.subheader("Sessões Anteriores")
+        st.subheader(t("data_sessions"))
         sessions = list_sessions()
         if len(sessions) > 0:
             for _, row in sessions.iterrows():
@@ -372,7 +378,7 @@ if page == t("nav_data"):
                 with c1:
                     st.markdown(f"**{row['filename']}**  \n{row['uploaded_at'][:16]} · {row['row_count']:,} registos")
                 with c2:
-                    if st.button("Carregar", key=f"load_{row['session_id']}"):
+                    if st.button(t("data_load_btn"), key=f"load_{row['session_id']}"):
                         df_raw = load_session(row["session_id"])
                         st.session_state.active_session = row["session_id"]
                         run_analysis(df_raw)
@@ -385,7 +391,7 @@ if page == t("nav_data"):
         else:
             st.info("Nenhuma sessão anterior encontrada. Carregue um ficheiro para começar.")
 
-    st.subheader("Formato de Colunas Necessário")
+    st.subheader(t("data_col_format"))
     st.markdown("""
     | Coluna | Obrigatório | Descrição |
     |--------|-------------|-----------|
@@ -421,10 +427,10 @@ if page == t("nav_howto"):
     """, unsafe_allow_html=True)
 
     t1, t2, t3, t4 = st.tabs([
-        "🚀  Início Rápido",
-        "🧠  Metodologia",
-        "📊  Módulos de Análise",
-        "📁  Formato dos Dados",
+        t("howto_tab1"),
+        t("howto_tab2"),
+        t("howto_tab3"),
+        t("howto_tab4"),
     ])
 
     with t1:
@@ -684,11 +690,11 @@ if st.session_state.scored_df is not None:
         # ── Row 1: Risk KPIs ──────────────────────────────────────────────────
         c1, c2, c3, c4, c5 = st.columns(5)
         kpis = [
-            (c1, f"{total:,}",             "Total de Solicitações", "kpi-blue"),
-            (c2, f"{high:,}",              "Risco Alto",            "kpi-high"),
-            (c3, f"{medium:,}",            "Risco Médio",           "kpi-medium"),
-            (c4, f"{flagged_pct:.1f}%",    "Taxa Sinalizada",       "kpi-medium"),
-            (c5, f"${high_risk_amt:,.0f}", "Valor em Risco Alto",   "kpi-high"),
+            (c1, f"{total:,}",             t("kpi_total"), "kpi-blue"),
+            (c2, f"{high:,}",              t("kpi_high"),            "kpi-high"),
+            (c3, f"{medium:,}",            t("kpi_medium"),           "kpi-medium"),
+            (c4, f"{flagged_pct:.1f}%",    t("kpi_flagged_rate"),       "kpi-medium"),
+            (c5, f"${high_risk_amt:,.0f}", t("kpi_high_value"),   "kpi-high"),
         ]
         for col, val, label, cls in kpis:
             with col:
@@ -758,9 +764,9 @@ if st.session_state.scored_df is not None:
 
         cards_html = (
             '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.8rem">'
-            + risk_card("#2D1515", "#F8717140", "#F87171", "Alto Risco",  high,   high_pct,   "#F87171")
-            + risk_card("#2D2415", "#FBBF2440", "#FBBF24", "Risco Médio", medium, medium_pct, "#FBBF24")
-            + risk_card("#152D1A", "#34D39940", "#34D399", "Baixo Risco", low,    low_pct,    "#34D399")
+            + risk_card("#2D1515", "#F8717140", "#F87171", t("high_risk_label"),  high,   high_pct,   "#F87171")
+            + risk_card("#2D2415", "#FBBF2440", "#FBBF24", t("kpi_medium"), medium, medium_pct, "#FBBF24")
+            + risk_card("#152D1A", "#34D39940", "#34D399", t("low_risk_label"), low,    low_pct,    "#34D399")
             + '</div>'
         )
 
@@ -774,7 +780,7 @@ if st.session_state.scored_df is not None:
         st.markdown(wrapper, unsafe_allow_html=True)
 
         # ── Top 10 alerts with adjudication badge ────────────────────────────
-        st.subheader("Top 10 Solicitações de Alto Risco")
+        st.subheader(t("top10_title"))
         top10 = df[df["risk_level"] == "High"].nlargest(10, "risk_score")
         display_cols = [c for c in ["claim_id", "member_id", "provider_id", "claim_date",
                                     "claim_amount", "risk_score", "adjudication", "risk_flags"]
@@ -802,7 +808,7 @@ if st.session_state.scored_df is not None:
             )
 
         if "claim_date" in df.columns and df["claim_date"].notna().any():
-            st.subheader("Evolução Mensal de Solicitações")
+            st.subheader(t("trend_title"))
             trend = df.groupby([df["claim_date"].dt.to_period("M"), "risk_level"], observed=True)["claim_id"].count().reset_index()
             trend["claim_date"] = trend["claim_date"].astype(str)
             fig_trend = px.bar(
@@ -834,29 +840,29 @@ if st.session_state.scored_df is not None:
 
         fc1, fc2, fc3, fc4 = st.columns([1.2, 1, 1, 1])
         with fc1:
-            risk_filter = st.multiselect("Nível de Risco", ["High", "Medium", "Low"],
+            risk_filter = st.multiselect(t("filter_risk"), ["High", "Medium", "Low"],
                                          default=["High", "Medium"],
                                          format_func=lambda x: RISK_PT[x])
         with fc2:
-            min_score = st.slider("Pontuação Mínima", 0, 100, 40)
+            min_score = st.slider(t("filter_min_score"), 0, 100, 40)
         with fc3:
             if "provider_id" in df.columns:
-                providers = ["Todos"] + sorted(df["provider_id"].astype(str).unique().tolist())
-                prov_filter = st.selectbox("Prestador", providers)
+                providers = [t("filter_all")] + sorted(df["provider_id"].astype(str).unique().tolist())
+                prov_filter = st.selectbox(t("filter_provider"), providers)
             else:
                 prov_filter = "Todos"
         with fc4:
             if "claim_date" in df.columns and df["claim_date"].notna().any():
                 min_d = df["claim_date"].min().date()
                 max_d = df["claim_date"].max().date()
-                date_range = st.date_input("Período", value=(min_d, max_d),
+                date_range = st.date_input(t("filter_period"), value=(min_d, max_d),
                                            min_value=min_d, max_value=max_d)
             else:
                 date_range = None
 
         # Apply filters
         filtered = df[df["risk_level"].isin(risk_filter) & (df["risk_score"] >= min_score)]
-        if prov_filter != "Todos":
+        if prov_filter != t("filter_all"):
             filtered = filtered[filtered["provider_id"].astype(str) == prov_filter]
         if date_range and len(date_range) == 2 and "claim_date" in df.columns:
             filtered = filtered[
@@ -873,8 +879,8 @@ if st.session_state.scored_df is not None:
         mk1, mk2, mk3, mk4, mk5 = st.columns(5)
         mini_kpis = [
             (mk1, f"{len(filtered):,}",  "Solicitações filtradas",   "#3B82F6"),
-            (mk2, f"{f_high:,}",         "Alto Risco",         "#EF4444"),
-            (mk3, f"{f_medium:,}",       "Risco Médio",        "#F59E0B"),
+            (mk2, f"{f_high:,}",         t("high_risk_label"),         "#EF4444"),
+            (mk3, f"{f_medium:,}",       t("kpi_medium"),        "#F59E0B"),
             (mk4, f"${f_amt:,.0f}",      "Valor Total",        "#A78BFA"),
             (mk5, f"${f_avg:,.0f}",      "Valor Médio",        "#22C55E"),
         ]
@@ -892,7 +898,7 @@ if st.session_state.scored_df is not None:
         st.markdown("---")
 
         # ── Visualização: cards de alto risco + tabela ─────────────────────────
-        tab1, tab2 = st.tabs(["🃏  Vista em Cards", "📋  Vista em Tabela"])
+        tab1, tab2 = st.tabs([t("tab_cards"), t("tab_table")])
 
         display_cols = [c for c in ["claim_id", "member_id", "provider_id", "claim_date",
                                      "claim_amount", "risk_score", "risk_level",
@@ -959,20 +965,20 @@ if st.session_state.scored_df is not None:
 
         # ── Exportar ───────────────────────────────────────────────────────────
         st.markdown("---")
-        st.subheader("Exportar Resultados")
+        st.subheader(t("export_title"))
         ec1, ec2, ec3 = st.columns(3)
         with ec1:
             xlsx = exporter.to_excel(df, prov_df, mem_df, df)
-            st.download_button("📥 Descarregar Excel", xlsx, "relatorio_claims.xlsx",
+            st.download_button(t("btn_excel"), xlsx, "relatorio_claims.xlsx",
                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                use_container_width=True)
         with ec2:
             csv_bytes = exporter.to_csv(df)
-            st.download_button("📥 Descarregar CSV", csv_bytes, "claims_sinalizados.csv",
+            st.download_button(t("btn_csv"), csv_bytes, "claims_sinalizados.csv",
                                "text/csv", use_container_width=True)
         with ec3:
             pdf_bytes = exporter.to_pdf(df, prov_df, mem_df)
-            st.download_button("📥 Descarregar PDF", pdf_bytes, "relatorio_investigacao.pdf",
+            st.download_button(t("btn_pdf"), pdf_bytes, "relatorio_investigacao.pdf",
                                "application/pdf", use_container_width=True)
 
 
@@ -984,7 +990,7 @@ if st.session_state.scored_df is not None:
             st.warning("Dados de prestadores não disponíveis.")
             st.stop()
 
-        top_n = st.slider("Mostrar os N prestadores com maior risco", 5, 50, 20)
+        top_n = st.slider(t("prov_slider"), 5, 50, 20)
         top_prov = prov_df.nlargest(top_n, "provider_risk_score")
 
         top_prov_sorted = top_prov.sort_values("provider_risk_score", ascending=True)
@@ -1021,17 +1027,17 @@ if st.session_state.scored_df is not None:
         )
         st.plotly_chart(fig_bar, width='stretch')
 
-        st.subheader("Detalhe do Prestador")
-        sel_provider = st.selectbox("Seleccionar prestador", prov_df["provider_id"].astype(str).tolist())
+        st.subheader(t("prov_detail"))
+        sel_provider = st.selectbox(t("prov_select"), prov_df["provider_id"].astype(str).tolist())
         prov_row = prov_df[prov_df["provider_id"].astype(str) == sel_provider]
 
         if len(prov_row) > 0:
             r = prov_row.iloc[0]
             p1, p2, p3, p4 = st.columns(4)
-            p1.metric("Pontuação de Risco",  f"{r.get('provider_risk_score', 0):.1f}")
-            p2.metric("Total de Solicitações",  f"{int(r.get('claim_count', 0)):,}")
-            p3.metric("Valor Médio",         f"${r.get('avg_amount', 0):,.2f}")
-            p4.metric("Taxa de Duplicados",  f"{r.get('dup_rate', 0)*100:.1f}%")
+            p1.metric(t("prov_risk_score"),  f"{r.get('provider_risk_score', 0):.1f}")
+            p2.metric(t("kpi_total"),  f"{int(r.get('claim_count', 0)):,}")
+            p3.metric(t("prov_avg_value"),         f"${r.get('avg_amount', 0):,.2f}")
+            p4.metric(t("prov_dup_rate"),  f"{r.get('dup_rate', 0)*100:.1f}%")
 
             flags = r.get("provider_flags", "")
             if flags:
@@ -1074,7 +1080,7 @@ if st.session_state.scored_df is not None:
             st.warning("Dados de beneficiários não disponíveis.")
             st.stop()
 
-        top_n_mem = st.slider("Mostrar os N beneficiários com maior risco", 5, 50, 20)
+        top_n_mem = st.slider(t("mem_slider"), 5, 50, 20)
         top_mem = mem_df.nlargest(top_n_mem, "member_risk_score")
 
         top_mem_sorted = top_mem.sort_values("member_risk_score", ascending=True)
@@ -1128,7 +1134,7 @@ if st.session_state.scored_df is not None:
             )
             st.plotly_chart(fig_shop, width='stretch')
 
-        st.subheader("Beneficiários de Alto Risco")
+        st.subheader(t("mem_table_title"))
         m_cols = [c for c in ["member_id", "member_risk_score", "claim_count", "total_spend",
                                "distinct_providers", "member_flags"] if c in mem_df.columns]
         st.dataframe(
@@ -1191,7 +1197,7 @@ if st.session_state.scored_df is not None:
         )
         st.plotly_chart(fig_dist, width='stretch')
 
-        st.subheader("Principais Solicitações com Custos Atípicos")
+        st.subheader(t("cost_table_title"))
         outlier_cols = [c for c in ["claim_id", "member_id", "provider_id", "claim_amount",
                                      "peer_mean", "cost_outlier_score", "risk_level", "risk_flags"]
                         if c in df.columns]
@@ -1250,9 +1256,9 @@ if st.session_state.scored_df is not None:
         # ── KPIs do beneficiário ───────────────────────────────────────────────
         k1, k2, k3, k4 = st.columns(4)
         k1.metric("Pontuação de Risco",      f"{risk_score:.1f} / 100")
-        k2.metric("Total de Solicitações",         f"{int(r.get('claim_count', 0)):,}")
-        k3.metric("Gasto Total",             f"${r.get('total_spend', 0):,.2f}")
-        k4.metric("Prestadores Distintos",   f"{int(r.get('distinct_providers', 0))}")
+        k2.metric(t("kpi_total"),         f"{int(r.get('claim_count', 0)):,}")
+        k3.metric(t("report_total_spend"),             f"${r.get('total_spend', 0):,.2f}")
+        k4.metric(t("report_providers"),   f"{int(r.get('distinct_providers', 0))}")
 
         st.markdown("---")
 
@@ -1261,7 +1267,7 @@ if st.session_state.scored_df is not None:
         flags_list = [f.strip() for f in flags_raw.split(";") if f.strip()]
 
         if flags_list:
-            st.subheader("Sinais de Risco Detectados")
+            st.subheader(t("report_flags"))
             for flag in flags_list:
                 alert_cls = "alert-high" if risk_score >= 70 else "alert-medium"
                 st.markdown(f'<div class="{alert_cls}">&#9888; {flag}</div>', unsafe_allow_html=True)
@@ -1291,7 +1297,7 @@ if st.session_state.scored_df is not None:
 
         # ── Gráfico: evolução de gastos ───────────────────────────────────────
         if "claim_date" in mem_claims.columns and mem_claims["claim_date"].notna().any():
-            st.subheader("Evolução de Gastos")
+            st.subheader(t("report_trend"))
             timeline = mem_claims.groupby(
                 mem_claims["claim_date"].dt.to_period("M"), observed=True
             )["claim_amount"].sum().reset_index()
@@ -1313,7 +1319,7 @@ if st.session_state.scored_df is not None:
         st.markdown("---")
 
         # ── Exportar relatório individual ─────────────────────────────────────
-        st.subheader("Exportar Relatório Individual")
+        st.subheader(t("report_export"))
         ex1, ex2 = st.columns(2)
 
         with ex1:
@@ -1322,7 +1328,7 @@ if st.session_state.scored_df is not None:
             member_scored = df[df["member_id"].astype(str) == sel_member]
             pdf_bytes = to_pdf(member_scored, prov_df, mem_df)
             st.download_button(
-                "📥 Descarregar PDF do Beneficiário",
+                t("report_pdf_btn"),
                 pdf_bytes,
                 f"relatorio_{sel_member}.pdf",
                 "application/pdf",
@@ -1347,7 +1353,7 @@ if st.session_state.scored_df is not None:
                 ws.append(["RELATÓRIO DE RISCO — BENEFICIÁRIO", member_id])
                 ws.append(["Pontuação de Risco", f"{mem_info.get('member_risk_score', 0):.1f} / 100"])
                 ws.append(["Nível de Risco", risk_level])
-                ws.append(["Total de Solicitações", int(mem_info.get("claim_count", 0))])
+                ws.append([t("kpi_total"), int(mem_info.get("claim_count", 0))])
                 ws.append(["Gasto Total", f"${mem_info.get('total_spend', 0):,.2f}"])
                 ws.append(["Prestadores Distintos", int(mem_info.get("distinct_providers", 0))])
                 ws.append(["Sinais de Risco", flags_raw or "Nenhum"])
@@ -1373,7 +1379,7 @@ if st.session_state.scored_df is not None:
 
             xlsx_bytes = member_excel(sel_member, mem_claims, r)
             st.download_button(
-                "📥 Descarregar Excel do Beneficiário",
+                t("report_xlsx_btn"),
                 xlsx_bytes,
                 f"relatorio_{sel_member}.xlsx",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
