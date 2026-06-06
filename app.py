@@ -603,41 +603,25 @@ if page == t("nav_howto"):
 
 # ── Cabeçalho da plataforma (sempre visível no Painel) ────────────────────────
 if page == t("nav_overview"):
-    st.markdown("""
-    <div style="
-        display: flex;
-        align-items: center;
-        gap: 1.1rem;
-        background: linear-gradient(135deg, #1E2D3D 0%, #162030 100%);
-        border: 1px solid #2D3F50;
-        border-left: 5px solid #EF4444;
-        border-radius: 12px;
-        padding: 1.4rem 1.8rem;
-        margin-bottom: 1.5rem;
-    ">
-        <div style="
-            background: #EF4444;
-            border-radius: 12px;
-            width: 56px; height: 56px;
-            display: flex; align-items: center; justify-content: center;
-            flex-shrink: 0;
-            box-shadow: 0 0 18px #EF444455;
-        ">
-            <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="white">
-              <path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0
-                       2-2V5a2 2 0 0 0-2-2zm-7 14h-2v-4H6v-2h4V7h2v4h4v2h-4v4z"/>
-            </svg>
-        </div>
-        <div>
-            <div style="font-size:2.2rem; font-weight:900; color:#F1F5F9; line-height:1.15; letter-spacing:-0.5px">
-                Plataforma de Detecção de Fraude para Seguro de Saúde
-            </div>
-            <div style="font-size:0.95rem; color:#94A3B8; margin-top:0.5rem; letter-spacing:0.02em">
-                Fraude &bull; Desperdício &bull; Abuso &bull; Risco de Prestadores &bull; Custos Atípicos
-            </div>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(
+        f'<div style="display:flex;align-items:center;gap:1.1rem;'
+        f'background:linear-gradient(135deg,#1E2D3D 0%,#162030 100%);'
+        f'border:1px solid #2D3F50;border-left:5px solid #EF4444;'
+        f'border-radius:12px;padding:1.4rem 1.8rem;margin-bottom:1.5rem">'
+        f'<div style="background:#EF4444;border-radius:12px;width:56px;height:56px;'
+        f'display:flex;align-items:center;justify-content:center;flex-shrink:0;'
+        f'box-shadow:0 0 18px #EF444455">'
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="white">'
+        f'<path d="M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm-7 14h-2v-4H6v-2h4V7h2v4h4v2h-4v4z"/>'
+        f'</svg></div>'
+        f'<div>'
+        f'<div style="font-size:2.2rem;font-weight:900;color:#F1F5F9;line-height:1.15;letter-spacing:-0.5px">'
+        f'{t("platform_title")}</div>'
+        f'<div style="font-size:0.95rem;color:#94A3B8;margin-top:0.5rem;letter-spacing:0.02em">'
+        f'{t("platform_sub")}</div>'
+        f'</div></div>',
+        unsafe_allow_html=True,
+    )
 
 # ── Guardar: exige dados para páginas de análise ──────────────────────────────
 if page != t("nav_data") and page != t("nav_howto") and st.session_state.scored_df is None:
