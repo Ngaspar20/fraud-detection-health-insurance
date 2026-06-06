@@ -168,7 +168,7 @@ with st.sidebar:
     st.markdown(
         "<div style='padding:0.6rem 0.5rem 0.2rem 0.5rem;"
         "font-size:0.7rem;color:#475569;text-transform:uppercase;"
-        "letter-spacing:0.08em'>Language</div>",
+        "letter-spacing:0.08em'>Idioma / Language</div>",
         unsafe_allow_html=True,
     )
     lc1, lc2 = st.columns(2)
@@ -263,21 +263,17 @@ if page == t("nav_data"):
     st.title(t("data_title"))
 
     # ── Dados de demonstração ──────────────────────────────────────────────────
-    st.markdown("""
-    <div style="background:linear-gradient(135deg,#1E3A2F 0%,#162030 100%);
-                border:1px solid #22C55E40;border-radius:10px;
-                padding:1rem 1.4rem;margin-bottom:1.2rem">
-        <div style="font-size:1rem;font-weight:700;color:#22C55E;margin-bottom:0.3rem">
-            🧪 Experimente com Dados de Demonstração
-        </div>
-        <div style="font-size:0.85rem;color:#94A3B8">
-            Carregue automaticamente 1.931 solicitações sintéticas com padrões de fraude injectados
-            — sem necessidade de ficheiro. Ideal para explorar todas as funcionalidades da plataforma.
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown(
+        f'<div style="background:linear-gradient(135deg,#1E3A2F 0%,#162030 100%);'
+        f'border:1px solid #22C55E40;border-radius:10px;padding:1rem 1.4rem;margin-bottom:1.2rem">'
+        f'<div style="font-size:1rem;font-weight:700;color:#22C55E;margin-bottom:0.3rem">'
+        f'🧪 {t("data_demo_title")}</div>'
+        f'<div style="font-size:0.85rem;color:#94A3B8">{t("data_demo_desc")}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
-    if st.button("🚀  Carregar Dados de Demonstração", type="primary", use_container_width=True):
+    if st.button(t("data_demo_btn"), type="primary", use_container_width=True):
         import random
         rng = np.random.default_rng(42)
         random.seed(42)
