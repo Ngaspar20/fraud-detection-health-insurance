@@ -654,20 +654,53 @@ if st.session_state.scored_df is not None:
         total_amt    = pd.to_numeric(df["claim_amount"], errors="coerce").sum()
         high_risk_amt = pd.to_numeric(df[df["risk_level"] == "High"]["claim_amount"], errors="coerce").sum()
 
+        # Adjudication counts
+        n_investigate = (df["adjudication"] == "Investigar Urgente").sum()   if "adjudication" in df.columns else high
+        n_review      = (df["adjudication"] == "Rever Manualmente").sum()    if "adjudication" in df.columns else medium
+        n_approve     = (df["adjudication"] == "Aprovar Automaticamente").sum() if "adjudication" in df.columns else low
+
+        # ── Row 1: Risk KPIs ──────────────────────────────────────────────────
         c1, c2, c3, c4, c5 = st.columns(5)
         kpis = [
-            (c1, f"{total:,}",            "Total de Solicitações",    "kpi-blue"),
-            (c2, f"{high:,}",             "Risco Alto",            "kpi-high"),
-            (c3, f"{medium:,}",           "Risco Médio",           "kpi-medium"),
-            (c4, f"{flagged_pct:.1f}%",   "Taxa Sinalizada",       "kpi-medium"),
-            (c5, f"${high_risk_amt:,.0f}", "Valor em Risco Alto",  "kpi-high"),
+            (c1, f"{total:,}",             "Total de Solicitações", "kpi-blue"),
+            (c2, f"{high:,}",              "Risco Alto",            "kpi-high"),
+            (c3, f"{medium:,}",            "Risco Médio",           "kpi-medium"),
+            (c4, f"{flagged_pct:.1f}%",    "Taxa Sinalizada",       "kpi-medium"),
+            (c5, f"${high_risk_amt:,.0f}", "Valor em Risco Alto",   "kpi-high"),
         ]
         for col, val, label, cls in kpis:
             with col:
-                st.markdown(f"""<div class="card">
-                    <div class="kpi-value {cls}">{val}</div>
-                    <div class="kpi-label">{label}</div>
-                </div>""", unsafe_allow_html=True)
+                st.markdown(f'<div class="card"><div class="kpi-value {cls}">{val}</div>'
+                            f'<div class="kpi-label">{label}</div></div>', unsafe_allow_html=True)
+
+        # ── Row 2: Auto-Adjudication panel ───────────────────────────────────
+        st.markdown('<div style="font-size:0.7rem;color:#475569;text-transform:uppercase;'
+                    'letter-spacing:0.08em;margin:1.2rem 0 0.5rem 0">Recomendacao de Adjudicacao Automatica</div>',
+                    unsafe_allow_html=True)
+
+        a1, a2, a3 = st.columns(3)
+        adj_cards = [
+            (a1, n_investigate, "Investigar Urgente",        "#F87171", "#2D1515", "#F8717120",
+             "Risco >= 70. Encaminhar para equipa de investigacao."),
+            (a2, n_review,      "Rever Manualmente",         "#FBBF24", "#2D2415", "#FBBF2420",
+             "Risco 40-69. Requer revisao por gestor de sinistros."),
+            (a3, n_approve,     "Aprovar Automaticamente",   "#34D399", "#152D1A", "#34D39920",
+             "Risco < 40. Dentro dos parametros normais. Auto-adjudicar."),
+        ]
+        for col, count, label, color, bg, border, desc in adj_cards:
+            pct = count / total * 100 if total > 0 else 0
+            with col:
+                st.markdown(
+                    f'<div style="background:{bg};border:1px solid {border};border-radius:12px;padding:1.1rem 1.3rem">'
+                    f'<div style="font-size:2rem;font-weight:800;color:{color};line-height:1">{count:,}</div>'
+                    f'<div style="font-weight:700;color:{color};font-size:0.85rem;margin-top:4px">{label}</div>'
+                    f'<div style="font-size:0.78rem;color:#475569;margin-top:4px">{pct:.1f}% das solicitacoes</div>'
+                    f'<div style="margin-top:0.6rem;height:3px;background:#1E3A50;border-radius:2px">'
+                    f'<div style="width:{min(pct,100):.1f}%;height:100%;background:{color};border-radius:2px"></div></div>'
+                    f'<div style="font-size:0.75rem;color:#334155;margin-top:6px">{desc}</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
 
         st.markdown("---")
 
@@ -675,30 +708,27 @@ if st.session_state.scored_df is not None:
         high_pct   = round(high   / total * 100, 2) if total > 0 else 0
         medium_pct = round(medium / total * 100, 2) if total > 0 else 0
         low_pct    = round(low    / total * 100, 2) if total > 0 else 0
-
         high_mw   = "4px" if high > 0 else "0"
         medium_mw = "4px" if medium > 0 else "0"
 
-        # Barra horizontal proporcional
         bar_html = (
             f'<div style="display:flex;height:28px;border-radius:8px;overflow:hidden;gap:2px;margin-bottom:1.2rem">'
-            f'<div style="width:{high_pct}%;background:#EF4444;min-width:{high_mw}"></div>'
-            f'<div style="width:{medium_pct}%;background:#F59E0B;min-width:{medium_mw}"></div>'
-            f'<div style="flex:1;background:#22C55E"></div>'
+            f'<div style="width:{high_pct}%;background:#F87171;min-width:{high_mw}"></div>'
+            f'<div style="width:{medium_pct}%;background:#FBBF24;min-width:{medium_mw}"></div>'
+            f'<div style="flex:1;background:#34D399"></div>'
             f'</div>'
         )
 
-        # Card helper
         def risk_card(bg, border, dot, label, count, pct, bar_color):
             return (
                 f'<div style="background:{bg};border:1px solid {border};border-radius:10px;padding:1rem">'
                 f'<div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">'
                 f'<div style="width:10px;height:10px;border-radius:50%;background:{dot};flex-shrink:0"></div>'
-                f'<span style="color:#94A3B8;font-size:0.75rem;text-transform:uppercase;letter-spacing:0.06em">{label}</span>'
+                f'<span style="color:#475569;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.06em">{label}</span>'
                 f'</div>'
                 f'<div style="font-size:2rem;font-weight:800;color:{dot};line-height:1">{count:,}</div>'
-                f'<div style="font-size:0.82rem;color:#64748B;margin-top:0.3rem">{pct:.1f}% do total</div>'
-                f'<div style="margin-top:0.7rem;height:4px;background:#2D3F50;border-radius:2px">'
+                f'<div style="font-size:0.82rem;color:#334155;margin-top:0.3rem">{pct:.1f}% do total</div>'
+                f'<div style="margin-top:0.7rem;height:4px;background:#1E3A50;border-radius:2px">'
                 f'<div style="width:{max(pct,1):.1f}%;height:100%;background:{bar_color};border-radius:2px"></div>'
                 f'</div>'
                 f'</div>'
@@ -706,37 +736,48 @@ if st.session_state.scored_df is not None:
 
         cards_html = (
             '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.8rem">'
-            + risk_card("#2D1515", "#EF444440", "#EF4444", "Alto Risco",  high,   high_pct,   "#EF4444")
-            + risk_card("#2D2415", "#F59E0B40", "#F59E0B", "Risco Médio", medium, medium_pct, "#F59E0B")
-            + risk_card("#152D1A", "#22C55E40", "#22C55E", "Baixo Risco", low,    low_pct,    "#22C55E")
+            + risk_card("#2D1515", "#F8717140", "#F87171", "Alto Risco",  high,   high_pct,   "#F87171")
+            + risk_card("#2D2415", "#FBBF2440", "#FBBF24", "Risco Médio", medium, medium_pct, "#FBBF24")
+            + risk_card("#152D1A", "#34D39940", "#34D399", "Baixo Risco", low,    low_pct,    "#34D399")
             + '</div>'
         )
 
         wrapper = (
-            '<div style="background:#1E2D3D;border:1px solid #2D3F50;border-radius:12px;padding:1.4rem 1.8rem;margin-bottom:1rem">'
-            f'<div style="color:#94A3B8;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.8rem">'
-            f'Distribuição de Risco &mdash; {total:,} solicitações analisadas</div>'
-            + bar_html + cards_html +
-            '</div>'
+            '<div style="background:linear-gradient(135deg,#112233,#0D1B2A);border:1px solid #1E3A50;'
+            'border-radius:12px;padding:1.4rem 1.8rem;margin-bottom:1rem">'
+            f'<div style="color:#475569;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.8rem">'
+            f'Distribuicao de Risco &mdash; {total:,} solicitacoes analisadas</div>'
+            + bar_html + cards_html + '</div>'
         )
         st.markdown(wrapper, unsafe_allow_html=True)
 
+        # ── Top 10 alerts with adjudication badge ────────────────────────────
         st.subheader("Top 10 Solicitações de Alto Risco")
         top10 = df[df["risk_level"] == "High"].nlargest(10, "risk_score")
         display_cols = [c for c in ["claim_id", "member_id", "provider_id", "claim_date",
-                                    "claim_amount", "risk_score", "risk_flags"] if c in top10.columns]
+                                    "claim_amount", "risk_score", "adjudication", "risk_flags"]
+                        if c in top10.columns]
         for _, row in top10[display_cols].iterrows():
             score = row.get("risk_score", 0)
             flags = row.get("risk_flags", "")
             amt   = row.get("claim_amount", 0)
-            st.markdown(f"""<div class="alert-high">
-                <strong>Solicitação {row.get('claim_id','N/D')}</strong> &nbsp;|&nbsp;
-                Benef.: {row.get('member_id','N/D')} &nbsp;|&nbsp;
-                Prestador: {row.get('provider_id','N/D')} &nbsp;|&nbsp;
-                Valor: <strong>${amt:,.2f}</strong> &nbsp;|&nbsp;
-                Risco: <strong style="color:#EF4444">{score:.0f}</strong><br>
-                <span style="color:#94A3B8;font-size:0.82rem">{flags}</span>
-            </div>""", unsafe_allow_html=True)
+            adj   = row.get("adjudication", "Investigar Urgente")
+            badge_cls = "badge-investigate" if "Investigar" in adj else "badge-review" if "Rever" in adj else "badge-approve"
+            st.markdown(
+                f'<div class="alert-high">'
+                f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">'
+                f'<strong style="color:#F1F5F9">Solicitacao {row.get("claim_id","N/D")}</strong>'
+                f'<span class="{badge_cls}">{adj}</span></div>'
+                f'<div style="display:flex;gap:1.2rem;font-size:0.82rem;flex-wrap:wrap">'
+                f'<span style="color:#64748B">Benef.: <strong style="color:#CBD5E1">{row.get("member_id","N/D")}</strong></span>'
+                f'<span style="color:#64748B">Prestador: <strong style="color:#CBD5E1">{row.get("provider_id","N/D")}</strong></span>'
+                f'<span style="color:#64748B">Valor: <strong style="color:#F87171">${amt:,.2f}</strong></span>'
+                f'<span style="color:#64748B">Score: <strong style="color:#F87171">{score:.0f}/100</strong></span>'
+                f'</div>'
+                f'<div style="font-size:0.78rem;color:#475569;margin-top:5px;font-style:italic">{flags}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
         if "claim_date" in df.columns and df["claim_date"].notna().any():
             st.subheader("Evolução Mensal de Solicitações")
@@ -832,7 +873,8 @@ if st.session_state.scored_df is not None:
         tab1, tab2 = st.tabs(["🃏  Vista em Cards", "📋  Vista em Tabela"])
 
         display_cols = [c for c in ["claim_id", "member_id", "provider_id", "claim_date",
-                                     "claim_amount", "risk_score", "risk_level", "risk_flags"]
+                                     "claim_amount", "risk_score", "risk_level",
+                                     "adjudication", "risk_flags"]
                         if c in filtered.columns]
         sorted_df = filtered[display_cols].sort_values("risk_score", ascending=False).head(500)
 
