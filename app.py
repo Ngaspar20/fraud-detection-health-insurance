@@ -372,7 +372,7 @@ if page == t("nav_data"):
             for _, row in sessions.iterrows():
                 c1, c2, c3 = st.columns([3, 1, 1])
                 with c1:
-                    st.markdown(f"**{row['filename']}**  \n{row['uploaded_at'][:16]} · {row['row_count']:,} registos")
+                    st.markdown(f"**{row['filename']}**  \n{row['uploaded_at'][:16]} · {row['row_count']:,} {t('data_records')}")
                 with c2:
                     if st.button(t("data_load_btn"), key=f"load_{row['session_id']}"):
                         df_raw = load_session(row["session_id"])
@@ -388,23 +388,44 @@ if page == t("nav_data"):
             st.info("Nenhuma sessão anterior encontrada. Carregue um ficheiro para começar.")
 
     st.subheader(t("data_col_format"))
-    st.markdown("""
-    | Coluna | Obrigatório | Descrição |
-    |--------|-------------|-----------|
-    | `claim_id` | ✅ | Identificador único do solicitação |
-    | `member_id` | ✅ | Identificador do beneficiário / paciente |
-    | `provider_id` | ✅ | Identificador do prestador / estabelecimento |
-    | `claim_date` | ✅ | Data de submissão do solicitação |
-    | `claim_amount` | ✅ | Valor total facturado |
-    | `diagnosis_code` | Opcional | Código de diagnóstico ICD-10 |
-    | `procedure_code` | Opcional | Código de procedimento CPT / HCPCS |
-    | `service_date` | Opcional | Data de prestação do serviço |
-    | `paid_amount` | Opcional | Valor aprovado / pago |
-    | `provider_specialty` | Opcional | Especialidade do prestador |
-    | `member_age` | Opcional | Idade do beneficiário |
-    | `member_gender` | Opcional | Género do beneficiário |
-    | `drug_name` / `ndc_code` | Opcional | Para solicitações de farmácia |
-    """)
+    _req = t("data_col_required")
+    _opt = t("data_col_optional")
+    if st.session_state.lang == "en":
+        st.markdown(f"""
+| Column | Required | Description |
+|--------|----------|-------------|
+| `claim_id` | ✅ | Unique claim identifier |
+| `member_id` | ✅ | Member / patient identifier |
+| `provider_id` | ✅ | Provider / facility identifier |
+| `claim_date` | ✅ | Date claim was submitted (YYYY-MM-DD) |
+| `claim_amount` | ✅ | Total billed amount |
+| `diagnosis_code` | {_opt} | ICD-10 diagnosis code |
+| `procedure_code` | {_opt} | CPT / HCPCS procedure code |
+| `service_date` | {_opt} | Date of service |
+| `paid_amount` | {_opt} | Amount approved / paid |
+| `provider_specialty` | {_opt} | Provider specialty |
+| `member_age` | {_opt} | Member age |
+| `member_gender` | {_opt} | Member gender |
+| `drug_name` / `ndc_code` | {_opt} | For pharmacy claims |
+        """)
+    else:
+        st.markdown(f"""
+| Coluna | {_req} | Descrição |
+|--------|---------|-----------|
+| `claim_id` | ✅ | Identificador único do claim |
+| `member_id` | ✅ | Identificador do beneficiário / paciente |
+| `provider_id` | ✅ | Identificador do prestador / estabelecimento |
+| `claim_date` | ✅ | Data de submissão do claim (YYYY-MM-DD) |
+| `claim_amount` | ✅ | Valor total facturado |
+| `diagnosis_code` | {_opt} | Código de diagnóstico ICD-10 |
+| `procedure_code` | {_opt} | Código de procedimento CPT / HCPCS |
+| `service_date` | {_opt} | Data de prestação do serviço |
+| `paid_amount` | {_opt} | Valor aprovado / pago |
+| `provider_specialty` | {_opt} | Especialidade do prestador |
+| `member_age` | {_opt} | Idade do beneficiário |
+| `member_gender` | {_opt} | Género do beneficiário |
+| `drug_name` / `ndc_code` | {_opt} | Para claims de farmácia |
+        """)
 
 
 # ── Como Funciona ─────────────────────────────────────────────────────────────
@@ -1217,7 +1238,7 @@ if st.session_state.scored_df is not None:
 
         r = mem_row.iloc[0]
         risk_score = r.get("member_risk_score", 0)
-        risk_level = "Alto" if risk_score >= 70 else "Médio" if risk_score >= 40 else "Baixo"
+        risk_level = t("risk_high") if risk_score >= 70 else t("risk_medium") if risk_score >= 40 else t("risk_low")
         risk_color = "#EF4444" if risk_score >= 70 else "#F59E0B" if risk_score >= 40 else "#22C55E"
         risk_bg    = "#2D1515" if risk_score >= 70 else "#2D2415" if risk_score >= 40 else "#152D1A"
 
@@ -1230,20 +1251,20 @@ if st.session_state.scored_df is not None:
                         width:64px;height:64px;display:flex;align-items:center;justify-content:center;
                         font-size:1.6rem;font-weight:800;color:{risk_color};flex-shrink:0">{risk_score:.0f}</div>
             <div>
-                <div style="font-size:1.3rem;font-weight:700;color:#F1F5F9">Beneficiário: {sel_member}</div>
+                <div style="font-size:1.3rem;font-weight:700;color:#F1F5F9">{t("member_label")}: {sel_member}</div>
                 <div style="font-size:0.9rem;color:{risk_color};font-weight:600;margin-top:2px">
-                    Nível de Risco: {risk_level}</div>
+                    {t("report_risk_label")} {risk_level}</div>
                 <div style="font-size:0.82rem;color:#64748B;margin-top:2px">
-                    {int(r.get('claim_count',0)):,} solicitações &bull;
-                    Gasto total: ${r.get('total_spend',0):,.2f} &bull;
-                    {int(r.get('distinct_providers',0))} prestadores distintos</div>
+                    {int(r.get('claim_count',0)):,} {t("sidebar_claims")} &bull;
+                    {t("report_total_spend")}: ${r.get('total_spend',0):,.2f} &bull;
+                    {int(r.get('distinct_providers',0))} {t("report_providers")}</div>
             </div>
         </div>
         """, unsafe_allow_html=True)
 
         # ── KPIs do beneficiário ───────────────────────────────────────────────
         k1, k2, k3, k4 = st.columns(4)
-        k1.metric("Pontuação de Risco",      f"{risk_score:.1f} / 100")
+        k1.metric(t("prov_risk_score"),      f"{risk_score:.1f} / 100")
         k2.metric(t("kpi_total"),         f"{int(r.get('claim_count', 0)):,}")
         k3.metric(t("report_total_spend"),             f"${r.get('total_spend', 0):,.2f}")
         k4.metric(t("report_providers"),   f"{int(r.get('distinct_providers', 0))}")
@@ -1265,7 +1286,9 @@ if st.session_state.scored_df is not None:
         st.markdown("---")
 
         # ── Solicitações do beneficiário ────────────────────────────────────────────
-        st.subheader(f"Solicitações do Beneficiário ({len(mem_claims):,} registos)")
+        _claims_lbl = t("report_claims_title")
+        _recs_lbl   = t("data_records")
+        st.subheader(f"{_claims_lbl} ({len(mem_claims):,} {_recs_lbl})")
 
         show_cols = [c for c in ["claim_id", "provider_id", "claim_date", "claim_amount",
                                   "risk_score", "risk_level", "risk_flags"] if c in mem_claims.columns]
