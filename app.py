@@ -626,19 +626,17 @@ if page == t("nav_overview"):
 # ── Guardar: exige dados para páginas de análise ──────────────────────────────
 if page != t("nav_data") and page != t("nav_howto") and st.session_state.scored_df is None:
     if page == t("nav_overview"):
-        st.markdown("""
-        <div style="background:#243447;border:1px solid #2D3F50;border-radius:10px;
-                    padding:1.5rem 2rem;text-align:center;margin-top:1rem">
-            <div style="font-size:2rem;margin-bottom:0.5rem">📁</div>
-            <div style="color:#E2E8F0;font-size:1.05rem;font-weight:600;margin-bottom:0.4rem">
-                Nenhum dado carregado
-            </div>
-            <div style="color:#94A3B8;font-size:0.88rem">
-                Aceda a <strong style="color:#F59E0B">Gestão de Dados</strong> no menu lateral
-                para carregar um ficheiro CSV ou Excel e iniciar a análise.
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(
+            f'<div style="background:#0D1B2A;border:1px solid #1E3A50;border-radius:10px;'
+            f'padding:1.5rem 2rem;text-align:center;margin-top:1rem">'
+            f'<div style="font-size:2rem;margin-bottom:0.5rem">📁</div>'
+            f'<div style="color:#E2E8F0;font-size:1.05rem;font-weight:600;margin-bottom:0.4rem">'
+            f'{t("no_data_title")}</div>'
+            f'<div style="color:#94A3B8;font-size:0.88rem">'
+            f'{t("no_data_sub")}</div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
     else:
         st.info(t("no_data_msg"))
     st.stop()

@@ -193,8 +193,8 @@ TRANSLATIONS = {
     "no_data_msg":       {"pt": "Nenhum dado carregado. Aceda a **Gestão de Dados** para carregar um ficheiro.",
                           "en": "No data loaded. Go to **Data Management** to upload a file."},
     "no_data_title":     {"pt": "Nenhum dado carregado",       "en": "No data loaded"},
-    "no_data_sub":       {"pt": "Aceda a **Gestão de Dados** no menu lateral para carregar um ficheiro CSV ou Excel.",
-                          "en": "Go to **Data Management** in the sidebar to upload a CSV or Excel file."},
+    "no_data_sub":       {"pt": "Aceda a <strong style='color:#F59E0B'>Gestão de Dados</strong> no menu lateral para carregar um ficheiro CSV ou Excel e iniciar a análise.",
+                          "en": "Go to <strong style='color:#F59E0B'>Data Management</strong> in the sidebar to upload a CSV or Excel file and start the analysis."},
 
     # ── How It Works ────────────────────────────────────────────────────────────
     "howto_title":       {"pt": "Como Funciona a Plataforma",  "en": "How the Platform Works"},
