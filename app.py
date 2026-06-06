@@ -13,10 +13,15 @@ from datetime import datetime
 from modules.column_detector import detect_columns
 from modules.data_loader import parse_upload, save_session, list_sessions, load_session, delete_session
 from modules import fraud_detection, provider_risk, member_utilization, cost_outlier, risk_scorer, exporter
+from modules.lang import t, translate_flag
+
+# ── Language init (before any st calls) ───────────────────────────────────────
+if "lang" not in st.session_state:
+    st.session_state.lang = "pt"
 
 # ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Plataforma de Detecção de Fraude para Seguro de Saúde",
+    page_title="Health Insurance Fraud Detection Platform",
     page_icon="🔍",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -146,47 +151,64 @@ if "active_session" not in st.session_state:
 
 
 # ── Sidebar navigation ─────────────────────────────────────────────────────────
-NAV_OPTIONS = [
-    "📊  Painel de Controlo",
-    "🔎  Análise de Solicitações",
-    "🏥  Inteligência de Prestadores",
-    "👤  Análise de Beneficiários",
-    "💰  Custos Atípicos",
-    "📋  Relatório por Beneficiário",
-    "📁  Gestão de Dados",
-    "ℹ️  Como Funciona",
-]
+def build_nav():
+    return [
+        f"📊  {t('nav_overview')}",
+        f"🔎  {t('nav_claims')}",
+        f"🏥  {t('nav_providers')}",
+        f"👤  {t('nav_members')}",
+        f"💰  {t('nav_costs')}",
+        f"📋  {t('nav_report')}",
+        f"📁  {t('nav_data')}",
+        f"ℹ️  {t('nav_howto')}",
+    ]
 
 with st.sidebar:
+    # ── Language toggle ────────────────────────────────────────────────────────
+    lc1, lc2 = st.columns(2)
+    with lc1:
+        if st.button("🇲🇿  PT", use_container_width=True,
+                     type="primary" if st.session_state.lang == "pt" else "secondary"):
+            st.session_state.lang = "pt"
+            st.rerun()
+    with lc2:
+        if st.button("🇬🇧  EN", use_container_width=True,
+                     type="primary" if st.session_state.lang == "en" else "secondary"):
+            st.session_state.lang = "en"
+            st.rerun()
+
+    st.markdown("<hr style='border-color:#1E3A50;margin:0.5rem 0 0.4rem 0'>", unsafe_allow_html=True)
+
     st.markdown(
-        "<div style='padding:1rem 0.5rem 0.8rem 0.8rem'>"
-        "<span style='font-size:1.15rem;font-weight:800;color:#F59E0B;letter-spacing:-0.3px'>"
-        "Painel Executivo</span>"
-        "</div>",
+        f"<div style='padding:0.6rem 0.5rem 0.6rem 0.8rem'>"
+        f"<span style='font-size:1.05rem;font-weight:800;color:#F59E0B;letter-spacing:-0.3px'>"
+        f"{t('sidebar_title')}</span></div>",
         unsafe_allow_html=True,
     )
-    st.markdown("<hr style='border-color:#2D3F50;margin:0 0 0.4rem 0'>", unsafe_allow_html=True)
+    st.markdown("<hr style='border-color:#1E3A50;margin:0 0 0.4rem 0'>", unsafe_allow_html=True)
 
+    NAV_OPTIONS = build_nav()
     nav_selection = st.radio("nav", NAV_OPTIONS, label_visibility="hidden")
 
-    st.markdown("<hr style='border-color:#2D3F50;margin:0.4rem 0'>", unsafe_allow_html=True)
+    st.markdown("<hr style='border-color:#1E3A50;margin:0.4rem 0'>", unsafe_allow_html=True)
 
     if st.session_state.scored_df is not None:
         _df = st.session_state.scored_df
         _high = (_df["risk_level"] == "High").sum()
         st.markdown(
-            f"<div style='padding:0.7rem 0.8rem;background:#243447;"
-            f"border-radius:8px;border:1px solid #2D3F50'>"
-            f"<div style='color:#94A3B8;font-size:0.7rem;text-transform:uppercase;"
-            f"letter-spacing:0.06em;margin-bottom:4px'>Sessão Activa</div>"
-            f"<div style='color:#E2E8F0;font-weight:600;font-size:0.95rem'>{len(_df):,} solicitações</div>"
-            f"<div style='color:#EF4444;font-size:0.82rem;margin-top:2px'>"
-            f"&#11044; {_high} de alto risco</div>"
+            f"<div style='padding:0.7rem 0.8rem;background:#0D1B2A;"
+            f"border-radius:8px;border:1px solid #1E3A50'>"
+            f"<div style='color:#475569;font-size:0.7rem;text-transform:uppercase;"
+            f"letter-spacing:0.06em;margin-bottom:4px'>{t('sidebar_session')}</div>"
+            f"<div style='color:#E2E8F0;font-weight:600;font-size:0.95rem'>"
+            f"{len(_df):,} {t('sidebar_claims')}</div>"
+            f"<div style='color:#F87171;font-size:0.82rem;margin-top:2px'>"
+            f"&#11044; {_high} {t('sidebar_highrisk')}</div>"
             f"</div>",
             unsafe_allow_html=True,
         )
         if st.session_state.profile and st.session_state.profile.missing_features:
-            with st.expander("ℹ️ Análises omitidas"):
+            with st.expander(f"ℹ️ {t('sidebar_skipped')}"):
                 for note in st.session_state.profile.missing_features:
                     st.caption(f"• {note}")
 
@@ -195,7 +217,7 @@ page = nav_selection.split("  ", 1)[1] if "  " in nav_selection else nav_selecti
 
 # ── Analysis pipeline ──────────────────────────────────────────────────────────
 def run_analysis(df_raw: pd.DataFrame):
-    with st.spinner("A detectar colunas..."):
+    with st.spinner(t("spin_columns")):
         df, profile, missing = detect_columns(df_raw)
 
     if missing:
@@ -206,33 +228,33 @@ def run_analysis(df_raw: pd.DataFrame):
     if "claim_date" in df.columns:
         df["claim_date"] = pd.to_datetime(df["claim_date"], errors="coerce")
 
-    with st.spinner("A executar detecção de anomalias..."):
+    with st.spinner(t("spin_anomaly")):
         anomaly_res = fraud_detection.run(df, profile)
 
-    with st.spinner("A calcular risco por prestador..."):
+    with st.spinner(t("spin_providers")):
         prov_claim_scores, provider_df = provider_risk.run(df, profile)
 
-    with st.spinner("A analisar utilização por beneficiário..."):
+    with st.spinner(t("spin_members")):
         mem_claim_scores, member_df = member_utilization.run(df, profile)
 
-    with st.spinner("A detectar custos atípicos..."):
+    with st.spinner(t("spin_costs")):
         cost_res = cost_outlier.run(df, profile)
 
-    with st.spinner("A calcular pontuação de risco composta..."):
+    with st.spinner(t("spin_scoring")):
         scored = risk_scorer.compute(df, anomaly_res, prov_claim_scores, mem_claim_scores, cost_res)
 
     st.session_state.scored_df   = scored
     st.session_state.provider_df = provider_df
     st.session_state.member_df   = member_df
     st.session_state.profile     = profile
-    st.success("Análise concluída.")
+    st.success(t("analysis_complete"))
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # PÁGINA: Gestão de Dados
 # ──────────────────────────────────────────────────────────────────────────────
-if page == "Gestão de Dados":
-    st.title("Gestão de Dados")
+if page == t("nav_data"):
+    st.title(t("data_title"))
 
     # ── Dados de demonstração ──────────────────────────────────────────────────
     st.markdown("""
@@ -384,7 +406,7 @@ if page == "Gestão de Dados":
 
 
 # ── Como Funciona ─────────────────────────────────────────────────────────────
-if page == "Como Funciona":
+if page == t("nav_howto"):
     st.markdown("""
     <div style="background:linear-gradient(135deg,#1E2D3D 0%,#162030 100%);
                 border:1px solid #2D3F50;border-left:5px solid #3B82F6;
@@ -578,7 +600,7 @@ if page == "Como Funciona":
 
 
 # ── Cabeçalho da plataforma (sempre visível no Painel) ────────────────────────
-if page == "Painel de Controlo":
+if page == t("nav_overview"):
     st.markdown("""
     <div style="
         display: flex;
@@ -616,8 +638,8 @@ if page == "Painel de Controlo":
     """, unsafe_allow_html=True)
 
 # ── Guardar: exige dados para páginas de análise ──────────────────────────────
-if page != "Gestão de Dados" and page != "Como Funciona" and st.session_state.scored_df is None:
-    if page == "Painel de Controlo":
+if page != t("nav_data") and page != t("nav_howto") and st.session_state.scored_df is None:
+    if page == t("nav_overview"):
         st.markdown("""
         <div style="background:#243447;border:1px solid #2D3F50;border-radius:10px;
                     padding:1.5rem 2rem;text-align:center;margin-top:1rem">
@@ -632,7 +654,7 @@ if page != "Gestão de Dados" and page != "Como Funciona" and st.session_state.s
         </div>
         """, unsafe_allow_html=True)
     else:
-        st.info("Nenhum dado carregado. Aceda a **Gestão de Dados** para carregar um ficheiro.")
+        st.info(t("no_data_msg"))
     st.stop()
 
 
@@ -642,10 +664,10 @@ if st.session_state.scored_df is not None:
     mem_df  = st.session_state.member_df
 
     RISK_COLORS = {"High": "#EF4444", "Medium": "#F59E0B", "Low": "#22C55E"}
-    RISK_PT     = {"High": "Alto", "Medium": "Médio", "Low": "Baixo"}
+    RISK_PT     = {"High": t("risk_high"), "Medium": t("risk_medium"), "Low": t("risk_low")}
 
     # ── Painel de Controlo ─────────────────────────────────────────────────────
-    if page == "Painel de Controlo":
+    if page == t("nav_overview"):
         total        = len(df)
         high         = (df["risk_level"] == "High").sum()
         medium       = (df["risk_level"] == "Medium").sum()
@@ -798,8 +820,8 @@ if st.session_state.scored_df is not None:
 
 
     # ── Análise de Solicitações ───────────────────────────────────────────────────
-    elif page == "Análise de Solicitações":
-        st.title("Análise de Solicitações")
+    elif page == t("nav_claims"):
+        st.title(t("claims_title"))
 
         # ── Filtros em card ────────────────────────────────────────────────────
         st.markdown("""
@@ -955,8 +977,8 @@ if st.session_state.scored_df is not None:
 
 
     # ── Inteligência de Prestadores ────────────────────────────────────────────
-    elif page == "Inteligência de Prestadores":
-        st.title("Inteligência de Prestadores")
+    elif page == t("nav_providers"):
+        st.title(t("prov_title"))
 
         if prov_df is None or len(prov_df) == 0:
             st.warning("Dados de prestadores não disponíveis.")
@@ -1045,8 +1067,8 @@ if st.session_state.scored_df is not None:
 
 
     # ── Análise de Beneficiários ───────────────────────────────────────────────
-    elif page == "Análise de Beneficiários":
-        st.title("Análise de Utilização por Beneficiário")
+    elif page == t("nav_members"):
+        st.title(t("mem_title"))
 
         if mem_df is None or len(mem_df) == 0:
             st.warning("Dados de beneficiários não disponíveis.")
@@ -1116,8 +1138,8 @@ if st.session_state.scored_df is not None:
 
 
     # ── Custos Atípicos ────────────────────────────────────────────────────────
-    elif page == "Custos Atípicos":
-        st.title("Análise de Custos Atípicos")
+    elif page == t("nav_costs"):
+        st.title(t("cost_title"))
 
         if "cost_outlier_score" not in df.columns:
             st.warning("Pontuações de custos atípicos não disponíveis.")
@@ -1178,8 +1200,8 @@ if st.session_state.scored_df is not None:
 
 
     # ── Relatório por Beneficiário ─────────────────────────────────────────────
-    elif page == "Relatório por Beneficiário":
-        st.title("Relatório de Risco por Beneficiário")
+    elif page == t("nav_report"):
+        st.title(t("report_title"))
         st.caption("Seleccione um beneficiário para gerar o seu perfil de risco completo e exportar em PDF ou Excel.")
 
         if mem_df is None or len(mem_df) == 0:
