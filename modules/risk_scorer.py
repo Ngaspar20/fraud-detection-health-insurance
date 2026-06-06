@@ -12,7 +12,7 @@ def compute(
     """
     Merge all module outputs into a unified claim-level risk score.
     Weights: anomaly 35%, provider 25%, member 20%, cost 20%.
-    Returns df with: risk_score, risk_level, risk_flags columns.
+    Returns df with: risk_score, risk_level, risk_flags, adjudication columns.
     """
     out = df.copy()
 
@@ -43,11 +43,9 @@ def compute(
 
     out["risk_flags"] = all_flags
 
-    # If any specific flags exist, the score must be at least 40 (Médio)
-    # — avoids showing flags on claims labelled "Baixo Risco"
+    # If any specific flags exist, the score must be at least 40 (Medio)
     has_flags = out["risk_flags"].apply(lambda f: len(f) > 0)
     out.loc[has_flags & (out["risk_score"] < 40), "risk_score"] = 40.0
-
     out["risk_score"] = out["risk_score"].clip(0, 100).round(1)
 
     # Risk level
@@ -57,9 +55,21 @@ def compute(
         labels=["Low", "Medium", "High"]
     )
 
+    # Auto-adjudication recommendation
+    def adjudicate(row):
+        score = row["risk_score"]
+        if score >= 70:
+            return "Investigar Urgente"
+        elif score >= 40:
+            return "Rever Manualmente"
+        else:
+            return "Aprovar Automaticamente"
+
+    out["adjudication"] = out.apply(adjudicate, axis=1)
+
     # Convert flags list to readable string
     out["risk_flags"] = out["risk_flags"].apply(
-        lambda f: "; ".join(f) if f else "Sem sinais específicos detectados"
+        lambda f: "; ".join(f) if f else "Sem sinais especificos detectados"
     )
 
     return out
