@@ -259,17 +259,33 @@ def t(key: str) -> str:
 def translate_flag(flag_text: str) -> str:
     """Translate a flag string based on current language."""
     lang = get_lang()
-    lang_map = FLAG_TRANSLATIONS.get(lang, {})
-    # Try exact match first
+    if lang == "pt":
+        return flag_text
+
+    lang_map = FLAG_TRANSLATIONS.get("en", {})
+
+    # Exact match
     if flag_text in lang_map:
         return lang_map[flag_text]
-    # Try partial match for flags with dynamic content (e.g. "Facturado 3.2x...")
-    if lang == "en":
-        if "acima da média do prestador" in flag_text:
-            parts = flag_text.split("x acima")
-            mult = parts[0].replace("Facturado ", "").strip() if parts else ""
-            rest = parts[1].replace(" da média do prestador", "").strip() if len(parts) > 1 else ""
-            return f"Billed {mult}x above provider average {rest}"
-        if "acima da média de referência" in flag_text:
-            return flag_text.replace("Custo", "Cost").replace("acima da média de referência", "above peer benchmark").replace("procedimento", "procedure").replace("especialidade", "specialty").replace("carteira", "portfolio")
+
+    # Dynamic: "Facturado 3.2x acima da média do prestador (Z>3.5)"
+    if "acima da média do prestador" in flag_text:
+        import re
+        m = re.search(r"Facturado\s+([\d.]+)x\s+acima da média do prestador\s*(\(.*\))?", flag_text)
+        if m:
+            mult = m.group(1)
+            zpart = m.group(2) or ""
+            return f"Billed {mult}x above provider average {zpart}".strip()
+
+    # Dynamic: "Custo 738% acima da média de referência (procedimento)"
+    if "acima da média de referência" in flag_text:
+        import re
+        m = re.search(r"Custo\s+(-?[\d.]+)%\s+acima da média de referência\s*\((\w+)\)?", flag_text)
+        if m:
+            pct   = m.group(1)
+            label = m.group(2).replace("procedimento", "procedure") \
+                               .replace("especialidade", "specialty") \
+                               .replace("carteira", "portfolio")
+            return f"Cost {pct}% above peer benchmark ({label})"
+
     return flag_text

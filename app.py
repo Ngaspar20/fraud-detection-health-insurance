@@ -765,22 +765,32 @@ if st.session_state.scored_df is not None:
                         if c in top10.columns]
         for _, row in top10[display_cols].iterrows():
             score = row.get("risk_score", 0)
-            flags = row.get("risk_flags", "")
             amt   = row.get("claim_amount", 0)
-            adj   = row.get("adjudication", "Investigar Urgente")
-            badge_cls = "badge-investigate" if "Investigar" in adj else "badge-review" if "Rever" in adj else "badge-approve"
+            adj   = row.get("adjudication", t("adj_investigate"))
+            # Translate adjudication label
+            adj_translated = t("adj_investigate") if "Investigar" in adj or "Urgent" in adj \
+                        else t("adj_review") if "Rever" in adj or "Review" in adj \
+                        else t("adj_approve")
+            badge_cls = "badge-investigate" if "Investigar" in adj or "Urgent" in adj \
+                   else "badge-review" if "Rever" in adj or "Review" in adj \
+                   else "badge-approve"
+            # Translate flag text
+            raw_flags = row.get("risk_flags", "")
+            translated_flags = "; ".join(
+                translate_flag(f.strip()) for f in raw_flags.split(";") if f.strip()
+            ) if raw_flags else t("no_signals")
             st.markdown(
                 f'<div class="alert-high">'
                 f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">'
-                f'<strong style="color:#F1F5F9">Solicitacao {row.get("claim_id","N/D")}</strong>'
-                f'<span class="{badge_cls}">{adj}</span></div>'
+                f'<strong style="color:#F1F5F9">{t("claim_label")} {row.get("claim_id","N/A")}</strong>'
+                f'<span class="{badge_cls}">{adj_translated}</span></div>'
                 f'<div style="display:flex;gap:1.2rem;font-size:0.82rem;flex-wrap:wrap">'
-                f'<span style="color:#64748B">Benef.: <strong style="color:#CBD5E1">{row.get("member_id","N/D")}</strong></span>'
-                f'<span style="color:#64748B">Prestador: <strong style="color:#CBD5E1">{row.get("provider_id","N/D")}</strong></span>'
-                f'<span style="color:#64748B">Valor: <strong style="color:#F87171">${amt:,.2f}</strong></span>'
-                f'<span style="color:#64748B">Score: <strong style="color:#F87171">{score:.0f}/100</strong></span>'
+                f'<span style="color:#64748B">{t("member_label")}: <strong style="color:#CBD5E1">{row.get("member_id","N/A")}</strong></span>'
+                f'<span style="color:#64748B">{t("provider_label")}: <strong style="color:#CBD5E1">{row.get("provider_id","N/A")}</strong></span>'
+                f'<span style="color:#64748B">{t("value_label")}: <strong style="color:#F87171">${amt:,.2f}</strong></span>'
+                f'<span style="color:#64748B">{t("score_label")}: <strong style="color:#F87171">{score:.0f}/100</strong></span>'
                 f'</div>'
-                f'<div style="font-size:0.78rem;color:#475569;margin-top:5px;font-style:italic">{flags}</div>'
+                f'<div style="font-size:0.78rem;color:#475569;margin-top:5px;font-style:italic">{translated_flags}</div>'
                 f'</div>',
                 unsafe_allow_html=True,
             )
