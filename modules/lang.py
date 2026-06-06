@@ -47,7 +47,7 @@ TRANSLATIONS = {
                           "en": "Risk 40-69. Requires review by claims manager."},
     "adj_approve_desc":  {"pt": "Risco < 40. Dentro dos parametros normais. Auto-adjudicar.",
                           "en": "Risk < 40. Within normal parameters. Auto-adjudicate."},
-    "adj_pct":           {"pt": "das solicitacoes",            "en": "of claims"},
+    "adj_pct":           {"pt": "do total",                    "en": "of total"},
     "risk_dist_label":   {"pt": "Distribuicao de Risco",       "en": "Risk Distribution"},
     "claims_analyzed":   {"pt": "solicitacoes analisadas",     "en": "claims analyzed"},
     "high_risk_label":   {"pt": "Alto Risco",                  "en": "High Risk"},

@@ -680,18 +680,18 @@ if st.session_state.scored_df is not None:
                             f'<div class="kpi-label">{label}</div></div>', unsafe_allow_html=True)
 
         # ── Row 2: Auto-Adjudication panel ───────────────────────────────────
-        st.markdown('<div style="font-size:0.7rem;color:#475569;text-transform:uppercase;'
-                    'letter-spacing:0.08em;margin:1.2rem 0 0.5rem 0">Recomendacao de Adjudicacao Automatica</div>',
+        st.markdown(f'<div style="font-size:0.7rem;color:#475569;text-transform:uppercase;'
+                    f'letter-spacing:0.08em;margin:1.2rem 0 0.5rem 0">{t("adj_panel_label")}</div>',
                     unsafe_allow_html=True)
 
         a1, a2, a3 = st.columns(3)
         adj_cards = [
-            (a1, n_investigate, "Investigar Urgente",        "#F87171", "#2D1515", "#F8717120",
-             "Risco >= 70. Encaminhar para equipa de investigacao."),
-            (a2, n_review,      "Rever Manualmente",         "#FBBF24", "#2D2415", "#FBBF2420",
-             "Risco 40-69. Requer revisao por gestor de sinistros."),
-            (a3, n_approve,     "Aprovar Automaticamente",   "#34D399", "#152D1A", "#34D39920",
-             "Risco < 40. Dentro dos parametros normais. Auto-adjudicar."),
+            (a1, n_investigate, t("adj_investigate"), "#F87171", "#2D1515", "#F8717120",
+             t("adj_investigate_desc")),
+            (a2, n_review,      t("adj_review"),      "#FBBF24", "#2D2415", "#FBBF2420",
+             t("adj_review_desc")),
+            (a3, n_approve,     t("adj_approve"),    "#34D399", "#152D1A", "#34D39920",
+             t("adj_approve_desc")),
         ]
         for col, count, label, color, bg, border, desc in adj_cards:
             pct = count / total * 100 if total > 0 else 0
@@ -700,7 +700,7 @@ if st.session_state.scored_df is not None:
                     f'<div style="background:{bg};border:1px solid {border};border-radius:12px;padding:1.1rem 1.3rem">'
                     f'<div style="font-size:2rem;font-weight:800;color:{color};line-height:1">{count:,}</div>'
                     f'<div style="font-weight:700;color:{color};font-size:0.85rem;margin-top:4px">{label}</div>'
-                    f'<div style="font-size:0.78rem;color:#475569;margin-top:4px">{pct:.1f}% das solicitacoes</div>'
+                    f'<div style="font-size:0.78rem;color:#475569;margin-top:4px">{pct:.1f}% {t("adj_pct")}</div>'
                     f'<div style="margin-top:0.6rem;height:3px;background:#1E3A50;border-radius:2px">'
                     f'<div style="width:{min(pct,100):.1f}%;height:100%;background:{color};border-radius:2px"></div></div>'
                     f'<div style="font-size:0.75rem;color:#334155;margin-top:6px">{desc}</div>'
@@ -733,7 +733,7 @@ if st.session_state.scored_df is not None:
                 f'<span style="color:#475569;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.06em">{label}</span>'
                 f'</div>'
                 f'<div style="font-size:2rem;font-weight:800;color:{dot};line-height:1">{count:,}</div>'
-                f'<div style="font-size:0.82rem;color:#334155;margin-top:0.3rem">{pct:.1f}% do total</div>'
+                f'<div style="font-size:0.82rem;color:#334155;margin-top:0.3rem">{pct:.1f}% {t("adj_pct")}</div>'
                 f'<div style="margin-top:0.7rem;height:4px;background:#1E3A50;border-radius:2px">'
                 f'<div style="width:{max(pct,1):.1f}%;height:100%;background:{bar_color};border-radius:2px"></div>'
                 f'</div>'
@@ -752,7 +752,7 @@ if st.session_state.scored_df is not None:
             '<div style="background:linear-gradient(135deg,#112233,#0D1B2A);border:1px solid #1E3A50;'
             'border-radius:12px;padding:1.4rem 1.8rem;margin-bottom:1rem">'
             f'<div style="color:#475569;font-size:0.7rem;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.8rem">'
-            f'Distribuicao de Risco &mdash; {total:,} solicitacoes analisadas</div>'
+            f'{t("risk_dist_label")} &mdash; {total:,} {t("claims_analyzed")}</div>'
             + bar_html + cards_html + '</div>'
         )
         st.markdown(wrapper, unsafe_allow_html=True)
