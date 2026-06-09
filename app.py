@@ -404,6 +404,103 @@ if page == t("nav_data"):
         else:
             st.info("Nenhuma sessão anterior encontrada. Carregue um ficheiro para começar.")
 
+    # ── Model Administration (technical — lives here, not on claims page) ────
+    st.subheader("🤖 Estado do Modelo de IA")
+    _sm = st.session_state.get("supervised_metrics")
+    _fb_admin = load_feedback(st.session_state.get("session_id", "demo"))
+
+    _adm_col1, _adm_col2 = st.columns([3, 2])
+    with _adm_col1:
+        if _sm and _sm.get("status") == "trained":
+            st.markdown(
+                f'<div style="background:#1a2d1a;border-left:4px solid #22C55E;border-radius:6px;'
+                f'padding:0.8rem 1rem">'
+                f'<strong style="color:#22C55E">✅ Modelo supervisionado activo</strong><br>'
+                f'<span style="color:#94A3B8">Treinado com '
+                f'<strong style="color:#E2E8F0">{_sm.get("n_labeled",0)}</strong> exemplos · '
+                f'<strong style="color:#EF4444">{_sm.get("n_fraud",0)} fraude</strong> · '
+                f'<strong style="color:#22C55E">{_sm.get("n_legit",0)} legítimos</strong></span><br>'
+                f'<span style="color:#64748B;font-size:0.82rem">'
+                f'Precisão: {_sm.get("precision",0):.0%} · '
+                f'Recall: {_sm.get("recall",0):.0%} · '
+                f'F1: {_sm.get("f1",0):.0%}'
+                + (f' · F1 CV: {_sm["f1_cv_mean"]:.0%}' if _sm.get("f1_cv_mean") else '')
+                + f'</span></div>',
+                unsafe_allow_html=True
+            )
+        elif _sm and _sm.get("status") == "insufficient":
+            _nf = _sm.get("n_fraud", 0); _nl = _sm.get("n_legit", 0)
+            st.markdown(
+                f'<div style="background:#1a1a2d;border-left:4px solid #A78BFA;border-radius:6px;'
+                f'padding:0.8rem 1rem">'
+                f'<strong style="color:#A78BFA">⏳ Dados insuficientes</strong><br>'
+                f'<span style="color:#94A3B8">Necessários ≥5 de cada classe · '
+                f'Actuais: {_nf} fraude, {_nl} legítimos</span></div>',
+                unsafe_allow_html=True
+            )
+        else:
+            st.markdown(
+                '<div style="background:#1a1a2d;border-left:4px solid #64748B;border-radius:6px;'
+                'padding:0.8rem 1rem">'
+                '<strong style="color:#94A3B8">🔒 Modelo não treinado</strong><br>'
+                '<span style="color:#64748B">Marque claims na página Análise de Solicitações '
+                'para acumular dados de treino.</span></div>',
+                unsafe_allow_html=True
+            )
+
+    with _adm_col2:
+        if st.button("🔄 Forçar Re-treino do Modelo", use_container_width=True):
+            with st.spinner("A treinar..."):
+                _m, _metrics = supervised_model.train(
+                    st.session_state.scored_df, _fb_admin
+                )
+            if _metrics and _metrics.get("status") == "trained":
+                st.session_state.scored_df = supervised_model.predict(
+                    st.session_state.scored_df, _m
+                )
+                st.session_state.supervised_metrics = _metrics
+                st.success(f"✅ Re-treinado com {_metrics['n_labeled']} exemplos.")
+                st.rerun()
+            else:
+                msg = (_metrics or {}).get("message", "Dados insuficientes.")
+                st.warning(f"⚠️ {msg}")
+                st.session_state.supervised_metrics = _metrics
+
+    # Feature importance chart (technical detail — admin only)
+    if _sm and _sm.get("status") == "trained":
+        _fi = _sm.get("feature_importance", {})
+        if _fi:
+            with st.expander("📊 Ver importância das features do modelo"):
+                _fi_df = pd.DataFrame(list(_fi.items()), columns=["Feature", "Importância"])
+                _fi_df = _fi_df.sort_values("Importância", ascending=True)
+                _fi_colors = ["#F59E0B" if v > 0.2 else "#3B82F6" if v > 0.1 else "#64748B"
+                              for v in _fi_df["Importância"]]
+                _fig_fi = go.Figure(go.Bar(
+                    x=_fi_df["Importância"], y=_fi_df["Feature"], orientation="h",
+                    marker=dict(color=_fi_colors),
+                    text=[f"{v:.1%}" for v in _fi_df["Importância"]],
+                    textposition="outside", textfont=dict(color="#E2E8F0", size=10),
+                    hovertemplate="<b>%{y}</b><br>Importância: %{x:.1%}<extra></extra>",
+                ))
+                _fig_fi.update_layout(
+                    paper_bgcolor="#1E2D3D", plot_bgcolor="#1E2D3D",
+                    font_color="#E2E8F0", height=280,
+                    xaxis=dict(showgrid=True, gridcolor="#243447", tickformat=".0%",
+                               tickfont=dict(color="#64748B")),
+                    yaxis=dict(showgrid=False, tickfont=dict(color="#CBD5E1", size=10)),
+                    margin=dict(t=10, b=20, l=180, r=60),
+                )
+                st.plotly_chart(_fig_fi, use_container_width=True)
+
+    # Full feedback log (admin view)
+    if not _fb_admin.empty:
+        with st.expander(f"📋 Registo completo de feedback ({len(_fb_admin)} avaliações)"):
+            st.dataframe(
+                _fb_admin[["claim_id", "verdict", "investigator", "notes", "created_at"]],
+                use_container_width=True
+            )
+
+    st.markdown("---")
     st.subheader(t("data_col_format"))
     _req = t("data_col_required")
     _opt = t("data_col_optional")
@@ -1050,136 +1147,68 @@ if st.session_state.scored_df is not None:
             else:
                 st.dataframe(sorted_df, width='stretch', height=520)
 
-        # ── Supervised Model Panel ────────────────────────────────────────────
+        # ── AI Status line (simple, user-facing) ─────────────────────────────
+        sm_metrics  = st.session_state.get("supervised_metrics")
+        fb_for_auto = load_feedback(st.session_state.get("session_id", "demo"))
+
+        # Auto-train silently whenever enough new labels exist
+        _n_fraud_auto = 0 if fb_for_auto.empty else (fb_for_auto["verdict"] == "Fraude Confirmada").sum()
+        _n_legit_auto = 0 if fb_for_auto.empty else (fb_for_auto["verdict"] == "Falso Positivo").sum()
+        _prev_labeled = (sm_metrics or {}).get("n_labeled", 0)
+        _new_total    = int(_n_fraud_auto) + int(_n_legit_auto)
+        if _n_fraud_auto >= 5 and _n_legit_auto >= 5 and _new_total > _prev_labeled:
+            _auto_model, _auto_metrics = supervised_model.train(
+                st.session_state.scored_df, fb_for_auto
+            )
+            if _auto_metrics and _auto_metrics.get("status") == "trained":
+                st.session_state.scored_df = supervised_model.predict(
+                    st.session_state.scored_df, _auto_model
+                )
+                st.session_state.supervised_metrics = _auto_metrics
+                sm_metrics = _auto_metrics
+
+        # One quiet status line — all the user needs to see
         st.markdown("---")
-        st.subheader("🤖 Modelo Supervisionado — Fase 2")
-
-        sm_metrics = st.session_state.get("supervised_metrics")
-        fb_for_train = load_feedback(st.session_state.get("session_id", "demo"))
-
-        # Status banner
         if sm_metrics and sm_metrics.get("status") == "trained":
-            n_lab   = sm_metrics.get("n_labeled", 0)
-            prec    = sm_metrics.get("precision", 0)
-            rec     = sm_metrics.get("recall", 0)
-            f1_val  = sm_metrics.get("f1", 0)
-            f1_cv   = sm_metrics.get("f1_cv_mean")
+            n_lab = sm_metrics.get("n_labeled", 0)
             st.markdown(
-                f'<div style="background:#1a2d1a;border-left:4px solid #22C55E;border-radius:6px;'
-                f'padding:0.8rem 1rem;margin-bottom:0.8rem">'
-                f'<strong style="color:#22C55E">✅ Modelo supervisionado activo</strong> — '
-                f'treinado com <strong style="color:#E2E8F0">{n_lab}</strong> exemplos rotulados. '
-                f'Precisão: <strong style="color:#F59E0B">{prec:.0%}</strong> · '
-                f'Recall: <strong style="color:#F59E0B">{rec:.0%}</strong> · '
-                f'F1: <strong style="color:#F59E0B">{f1_val:.0%}</strong>'
-                + (f' · F1 CV: <strong style="color:#94A3B8">{f1_cv:.0%}</strong>' if f1_cv else '')
-                + f'</div>',
+                f'<div style="background:#1E2D3D;border-radius:6px;padding:0.55rem 1rem;'
+                f'font-size:0.82rem;color:#64748B">'
+                f'🤖 <strong style="color:#22C55E">IA activa</strong> — '
+                f'aprendeu com <strong style="color:#E2E8F0">{n_lab}</strong> avaliações de investigadores. '
+                f'As probabilidades de fraude acima são actualizadas automaticamente.</div>',
                 unsafe_allow_html=True
             )
-
-            # Feature importance chart
-            fi = sm_metrics.get("feature_importance", {})
-            if fi:
-                fi_df = pd.DataFrame(list(fi.items()), columns=["Feature", "Importância"])
-                fi_df = fi_df.sort_values("Importância", ascending=True)
-                fi_colors = ["#F59E0B" if v > 0.2 else "#3B82F6" if v > 0.1 else "#64748B"
-                             for v in fi_df["Importância"]]
-                fig_fi = go.Figure(go.Bar(
-                    x=fi_df["Importância"], y=fi_df["Feature"],
-                    orientation="h",
-                    marker=dict(color=fi_colors),
-                    text=[f"{v:.1%}" for v in fi_df["Importância"]],
-                    textposition="outside",
-                    textfont=dict(color="#E2E8F0", size=10),
-                    hovertemplate="<b>%{y}</b><br>Importância: %{x:.1%}<extra></extra>",
-                ))
-                fig_fi.update_layout(
-                    title=dict(text="Importância das Features — Modelo Supervisionado",
-                               font=dict(size=12, color="#94A3B8"), x=0.5, xanchor="center"),
-                    paper_bgcolor="#1E2D3D", plot_bgcolor="#1E2D3D",
-                    font_color="#E2E8F0", height=300,
-                    xaxis=dict(showgrid=True, gridcolor="#243447", tickformat=".0%",
-                               tickfont=dict(color="#64748B")),
-                    yaxis=dict(showgrid=False, tickfont=dict(color="#CBD5E1", size=10)),
-                    margin=dict(t=40, b=20, l=180, r=60),
-                )
-                st.plotly_chart(fig_fi, use_container_width=True)
-
-        elif sm_metrics and sm_metrics.get("status") == "insufficient":
-            n_fraud = sm_metrics.get("n_fraud", 0)
-            n_legit = sm_metrics.get("n_legit", 0)
-            needed  = sm_metrics.get("needed", 5)
+        elif _n_fraud_auto > 0 or _n_legit_auto > 0:
+            _need = max(0, 5 - int(_n_fraud_auto)) + max(0, 5 - int(_n_legit_auto))
             st.markdown(
-                f'<div style="background:#1a1a2d;border-left:4px solid #A78BFA;border-radius:6px;'
-                f'padding:0.8rem 1rem;margin-bottom:0.8rem">'
-                f'<strong style="color:#A78BFA">⏳ Dados insuficientes para treinar</strong><br>'
-                f'<span style="color:#94A3B8">São necessários pelo menos <strong style="color:#E2E8F0">'
-                f'{needed}</strong> exemplos de cada classe.<br>'
-                f'Actuais: <strong style="color:#EF4444">{n_fraud} Fraude Confirmada</strong> · '
-                f'<strong style="color:#22C55E">{n_legit} Falso Positivo</strong></span></div>',
+                f'<div style="background:#1E2D3D;border-radius:6px;padding:0.55rem 1rem;'
+                f'font-size:0.82rem;color:#64748B">'
+                f'🤖 <strong style="color:#F59E0B">IA em aprendizagem</strong> — '
+                f'{int(_n_fraud_auto) + int(_n_legit_auto)} avaliações registadas. '
+                f'Mais {_need} para activar as probabilidades de fraude automáticas.</div>',
                 unsafe_allow_html=True
             )
         else:
             st.markdown(
-                '<div style="background:#1a1a2d;border-left:4px solid #64748B;border-radius:6px;'
-                'padding:0.8rem 1rem;margin-bottom:0.8rem">'
-                '<strong style="color:#94A3B8">🔒 Modelo supervisionado não treinado</strong><br>'
-                '<span style="color:#64748B">Use os botões de feedback nas solicitações acima para '
-                'marcar Fraude Confirmada e Falso Positivo. Com pelo menos 5 exemplos de cada, '
-                'pode treinar o modelo supervisionado de Fase 2.</span></div>',
+                '<div style="background:#1E2D3D;border-radius:6px;padding:0.55rem 1rem;'
+                'font-size:0.82rem;color:#64748B">'
+                '🤖 <strong style="color:#94A3B8">IA inactiva</strong> — '
+                'marque solicitações acima como Fraude ou Falso Positivo para activar.</div>',
                 unsafe_allow_html=True
             )
 
-        # Retrain button
-        col_train, col_info = st.columns([2, 5])
-        with col_train:
-            if st.button("🔄 Treinar / Re-treinar Modelo Supervisionado",
-                         use_container_width=True, type="primary"):
-                with st.spinner("A treinar modelo supervisionado..."):
-                    model, metrics = supervised_model.train(
-                        st.session_state.scored_df,
-                        fb_for_train
-                    )
-                if metrics and metrics.get("status") == "trained":
-                    # Re-apply predictions with new model
-                    st.session_state.scored_df = supervised_model.predict(
-                        st.session_state.scored_df, model
-                    )
-                    st.session_state.supervised_metrics = metrics
-                    st.success(
-                        f"✅ Modelo treinado com {metrics['n_labeled']} exemplos. "
-                        f"F1: {metrics['f1']:.0%} · Precisão: {metrics['precision']:.0%} · "
-                        f"Recall: {metrics['recall']:.0%}"
-                    )
-                    st.rerun()
-                else:
-                    msg = metrics.get("message", "Dados insuficientes.") if metrics else "Erro desconhecido."
-                    st.warning(f"⚠️ {msg}")
-                    st.session_state.supervised_metrics = metrics
-
-        # ── Feedback Summary ───────────────────────────────────────────────────
+        # ── Feedback summary — counts only, no technical detail ───────────────
         fb_all = load_feedback(st.session_state.get("session_id", "demo"))
         if not fb_all.empty:
-            st.markdown("---")
-            st.subheader("📋 Resumo de Investigação — Feedback dos Analistas")
-            v_counts = fb_all["verdict"].value_counts()
-            fc1, fc2, fc3 = st.columns(3)
-            fc1.metric("🚨 Fraude Confirmada",  v_counts.get("Fraude Confirmada", 0))
-            fc2.metric("✅ Falso Positivo",      v_counts.get("Falso Positivo", 0))
-            fc3.metric("🔍 Em Investigação",     v_counts.get("Em Investigação", 0))
-
-            total_fb = len(fb_all)
+            v_counts  = fb_all["verdict"].value_counts()
             confirmed = v_counts.get("Fraude Confirmada", 0)
-            precision = (confirmed / total_fb * 100) if total_fb > 0 else 0
-            st.markdown(
-                f'<div style="background:#1E2D3D;border-left:4px solid #F59E0B;border-radius:6px;'
-                f'padding:0.7rem 1rem;margin-top:0.5rem;font-size:0.85rem;color:#94A3B8">'
-                f'<strong style="color:#F59E0B">Precisão do modelo:</strong> '
-                f'{precision:.1f}% das solicitações marcadas confirmadas como fraude real '
-                f'({confirmed} de {total_fb} avaliadas). '
-                f'O modelo será mais preciso com mais feedback acumulado.</div>',
-                unsafe_allow_html=True
-            )
+            fp_count  = v_counts.get("Falso Positivo", 0)
+            inv_count = v_counts.get("Em Investigação", 0)
+            fc1, fc2, fc3 = st.columns(3)
+            fc1.metric("🚨 Fraude Confirmada", confirmed)
+            fc2.metric("✅ Falso Positivo",     fp_count)
+            fc3.metric("🔍 Em Investigação",    inv_count)
 
             with st.expander("Ver todos os registos de feedback"):
                 st.dataframe(
