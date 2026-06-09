@@ -1183,7 +1183,7 @@ if st.session_state.scored_df is not None:
                         fig_t2.add_trace(go.Bar(
                             x=prov_trends["month"], y=prov_trends["dup_count"],
                             name="Duplicados",
-                            marker=dict(color="#EF444466"),
+                            marker=dict(color="rgba(239,68,68,0.4)"),
                             yaxis="y2",
                             hovertemplate="<b>%{x}</b><br>Duplicados: %{y}<extra></extra>",
                         ))
