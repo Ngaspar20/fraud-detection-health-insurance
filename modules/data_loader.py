@@ -28,7 +28,8 @@ def _get_conn():
             verdict      TEXT NOT NULL,
             investigator TEXT,
             notes        TEXT,
-            created_at   TEXT NOT NULL
+            created_at   TEXT NOT NULL,
+            UNIQUE(claim_id, session_id)
         )
     """)
     conn.commit()
@@ -43,18 +44,17 @@ def save_feedback(claim_id: str, session_id: str, verdict: str,
     verdict must be: 'Fraude Confirmada' | 'Falso Positivo' | 'Em Investigação'
     """
     conn = _get_conn()
-    # Upsert: one verdict per (claim_id, session_id)
+    now = datetime.now().isoformat()
+    # Delete existing verdict for this claim+session, then insert fresh
     conn.execute(
-        """INSERT INTO feedback (claim_id, session_id, verdict, investigator, notes, created_at)
-           VALUES (?, ?, ?, ?, ?, ?)
-           ON CONFLICT DO NOTHING""",
-        (claim_id, session_id, verdict, investigator, notes, datetime.now().isoformat())
+        "DELETE FROM feedback WHERE claim_id=? AND session_id=?",
+        (claim_id, session_id)
     )
-    # Update if already exists
     conn.execute(
-        """UPDATE feedback SET verdict=?, investigator=?, notes=?, created_at=?
-           WHERE claim_id=? AND session_id=?""",
-        (verdict, investigator, notes, datetime.now().isoformat(), claim_id, session_id)
+        """INSERT INTO feedback
+               (claim_id, session_id, verdict, investigator, notes, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (claim_id, session_id, verdict, investigator, notes, now)
     )
     conn.commit()
     conn.close()
