@@ -15,6 +15,7 @@ from modules.data_loader import (parse_upload, save_session, list_sessions,
                                   load_session, delete_session,
                                   save_feedback, load_feedback, get_feedback_stats)
 from modules import fraud_detection, provider_risk, member_utilization, cost_outlier, risk_scorer, exporter
+from modules import supervised_model
 from modules.lang import t, translate_flag
 
 # ── Language init (before any st calls) ───────────────────────────────────────
@@ -154,6 +155,8 @@ if "trends_df" not in st.session_state:
     st.session_state.trends_df = None
 if "session_id" not in st.session_state:
     st.session_state.session_id = "demo"
+if "supervised_metrics" not in st.session_state:
+    st.session_state.supervised_metrics = supervised_model.load_metrics()
 
 
 # ── Sidebar navigation ─────────────────────────────────────────────────────────
@@ -256,6 +259,10 @@ def run_analysis(df_raw: pd.DataFrame):
         scored = risk_scorer.compute(df, anomaly_res, prov_claim_scores, mem_claim_scores, cost_res)
 
     trends_df = provider_risk.monthly_trends(df)
+
+    # Stage 2: apply supervised classifier if already trained
+    with st.spinner("Aplicando modelo supervisionado..." if st.session_state.lang == "pt" else "Applying supervised model..."):
+        scored = supervised_model.predict(scored)
 
     st.session_state.scored_df   = scored
     st.session_state.provider_df = provider_df
@@ -936,9 +943,11 @@ if st.session_state.scored_df is not None:
                 fb_map = {} if fb_df.empty else dict(zip(fb_df["claim_id"], fb_df["verdict"]))
 
                 for _, row in top_cards.iterrows():
-                    score   = row.get("risk_score", 0)
+                    score    = row.get("risk_score", 0)
                     score_lo = row.get("risk_score_low",  max(0,   score - 5))
                     score_hi = row.get("risk_score_high", min(100, score + 5))
+                    fraud_prob       = row.get("fraud_probability", None)
+                    supervised_label = row.get("supervised_verdict", None)
                     level   = row.get("risk_level", "Low")
                     flags   = row.get("risk_flags", "Sem sinais específicos detectados")
                     top_rf  = row.get("top_risk_factors", "")
@@ -962,6 +971,25 @@ if st.session_state.scored_df is not None:
                     # CI display
                     ci_str = f"IC: {score_lo:.0f}–{score_hi:.0f}"
 
+                    # Supervised model badge
+                    sup_badge = ""
+                    if fraud_prob is not None:
+                        try:
+                            fp_val = float(fraud_prob)
+                            if supervised_label == "Provável Fraude":
+                                sup_clr = "#EF4444"
+                            elif supervised_label == "Incerto":
+                                sup_clr = "#A78BFA"
+                            else:
+                                sup_clr = "#22C55E"
+                            sup_badge = (
+                                f'<span style="margin-left:0.6rem;background:{sup_clr}22;color:{sup_clr};'
+                                f'font-size:0.68rem;font-weight:700;padding:2px 8px;border-radius:20px;'
+                                f'border:1px solid {sup_clr}55">🤖 {supervised_label} ({fp_val:.0f}%)</span>'
+                            )
+                        except (TypeError, ValueError):
+                            pass
+
                     st.markdown(
                         f'<div style="background:{bg};border:1px solid {clr}33;border-left:4px solid {clr};'
                         f'border-radius:10px;padding:0.9rem 1.2rem;margin-bottom:0.5rem">'
@@ -970,6 +998,7 @@ if st.session_state.scored_df is not None:
                         f'<span style="font-size:1rem;font-weight:700;color:#F1F5F9">Solicitação {cid}</span>'
                         f'<span style="margin-left:0.8rem;background:{clr}22;color:{clr};font-size:0.72rem;'
                         f'font-weight:700;padding:2px 10px;border-radius:20px;border:1px solid {clr}55">{lvl_pt}</span>'
+                        f'{sup_badge}'
                         f'{verdict_badge}'
                         f'</div>'
                         f'<div style="text-align:right">'
@@ -1020,6 +1049,113 @@ if st.session_state.scored_df is not None:
                 )
             else:
                 st.dataframe(sorted_df, width='stretch', height=520)
+
+        # ── Supervised Model Panel ────────────────────────────────────────────
+        st.markdown("---")
+        st.subheader("🤖 Modelo Supervisionado — Fase 2")
+
+        sm_metrics = st.session_state.get("supervised_metrics")
+        fb_for_train = load_feedback(st.session_state.get("session_id", "demo"))
+
+        # Status banner
+        if sm_metrics and sm_metrics.get("status") == "trained":
+            n_lab   = sm_metrics.get("n_labeled", 0)
+            prec    = sm_metrics.get("precision", 0)
+            rec     = sm_metrics.get("recall", 0)
+            f1_val  = sm_metrics.get("f1", 0)
+            f1_cv   = sm_metrics.get("f1_cv_mean")
+            st.markdown(
+                f'<div style="background:#1a2d1a;border-left:4px solid #22C55E;border-radius:6px;'
+                f'padding:0.8rem 1rem;margin-bottom:0.8rem">'
+                f'<strong style="color:#22C55E">✅ Modelo supervisionado activo</strong> — '
+                f'treinado com <strong style="color:#E2E8F0">{n_lab}</strong> exemplos rotulados. '
+                f'Precisão: <strong style="color:#F59E0B">{prec:.0%}</strong> · '
+                f'Recall: <strong style="color:#F59E0B">{rec:.0%}</strong> · '
+                f'F1: <strong style="color:#F59E0B">{f1_val:.0%}</strong>'
+                + (f' · F1 CV: <strong style="color:#94A3B8">{f1_cv:.0%}</strong>' if f1_cv else '')
+                + f'</div>',
+                unsafe_allow_html=True
+            )
+
+            # Feature importance chart
+            fi = sm_metrics.get("feature_importance", {})
+            if fi:
+                fi_df = pd.DataFrame(list(fi.items()), columns=["Feature", "Importância"])
+                fi_df = fi_df.sort_values("Importância", ascending=True)
+                fi_colors = ["#F59E0B" if v > 0.2 else "#3B82F6" if v > 0.1 else "#64748B"
+                             for v in fi_df["Importância"]]
+                fig_fi = go.Figure(go.Bar(
+                    x=fi_df["Importância"], y=fi_df["Feature"],
+                    orientation="h",
+                    marker=dict(color=fi_colors),
+                    text=[f"{v:.1%}" for v in fi_df["Importância"]],
+                    textposition="outside",
+                    textfont=dict(color="#E2E8F0", size=10),
+                    hovertemplate="<b>%{y}</b><br>Importância: %{x:.1%}<extra></extra>",
+                ))
+                fig_fi.update_layout(
+                    title=dict(text="Importância das Features — Modelo Supervisionado",
+                               font=dict(size=12, color="#94A3B8"), x=0.5, xanchor="center"),
+                    paper_bgcolor="#1E2D3D", plot_bgcolor="#1E2D3D",
+                    font_color="#E2E8F0", height=300,
+                    xaxis=dict(showgrid=True, gridcolor="#243447", tickformat=".0%",
+                               tickfont=dict(color="#64748B")),
+                    yaxis=dict(showgrid=False, tickfont=dict(color="#CBD5E1", size=10)),
+                    margin=dict(t=40, b=20, l=180, r=60),
+                )
+                st.plotly_chart(fig_fi, use_container_width=True)
+
+        elif sm_metrics and sm_metrics.get("status") == "insufficient":
+            n_fraud = sm_metrics.get("n_fraud", 0)
+            n_legit = sm_metrics.get("n_legit", 0)
+            needed  = sm_metrics.get("needed", 5)
+            st.markdown(
+                f'<div style="background:#1a1a2d;border-left:4px solid #A78BFA;border-radius:6px;'
+                f'padding:0.8rem 1rem;margin-bottom:0.8rem">'
+                f'<strong style="color:#A78BFA">⏳ Dados insuficientes para treinar</strong><br>'
+                f'<span style="color:#94A3B8">São necessários pelo menos <strong style="color:#E2E8F0">'
+                f'{needed}</strong> exemplos de cada classe.<br>'
+                f'Actuais: <strong style="color:#EF4444">{n_fraud} Fraude Confirmada</strong> · '
+                f'<strong style="color:#22C55E">{n_legit} Falso Positivo</strong></span></div>',
+                unsafe_allow_html=True
+            )
+        else:
+            st.markdown(
+                '<div style="background:#1a1a2d;border-left:4px solid #64748B;border-radius:6px;'
+                'padding:0.8rem 1rem;margin-bottom:0.8rem">'
+                '<strong style="color:#94A3B8">🔒 Modelo supervisionado não treinado</strong><br>'
+                '<span style="color:#64748B">Use os botões de feedback nas solicitações acima para '
+                'marcar Fraude Confirmada e Falso Positivo. Com pelo menos 5 exemplos de cada, '
+                'pode treinar o modelo supervisionado de Fase 2.</span></div>',
+                unsafe_allow_html=True
+            )
+
+        # Retrain button
+        col_train, col_info = st.columns([2, 5])
+        with col_train:
+            if st.button("🔄 Treinar / Re-treinar Modelo Supervisionado",
+                         use_container_width=True, type="primary"):
+                with st.spinner("A treinar modelo supervisionado..."):
+                    model, metrics = supervised_model.train(
+                        st.session_state.scored_df,
+                        fb_for_train
+                    )
+                if metrics and metrics.get("status") == "trained":
+                    # Re-apply predictions with new model
+                    st.session_state.scored_df = supervised_model.predict(
+                        st.session_state.scored_df, model
+                    )
+                    st.session_state.supervised_metrics = metrics
+                    st.success(
+                        f"✅ Modelo treinado com {metrics['n_labeled']} exemplos. "
+                        f"F1: {metrics['f1']:.0%} · Precisão: {metrics['precision']:.0%} · "
+                        f"Recall: {metrics['recall']:.0%}"
+                    )
+                    st.rerun()
+                else:
+                    msg = metrics.get("message", "Dados insuficientes.") if metrics else "Erro desconhecido."
+                    st.warning(f"⚠️ {msg}")
+                    st.session_state.supervised_metrics = metrics
 
         # ── Feedback Summary ───────────────────────────────────────────────────
         fb_all = load_feedback(st.session_state.get("session_id", "demo"))
