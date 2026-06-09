@@ -85,3 +85,33 @@ def run(df: pd.DataFrame, profile: ColumnProfile) -> pd.DataFrame:
     df["provider_risk_score"] = df["provider_id"].map(score_map).fillna(50)
 
     return df[["claim_id", "provider_risk_score"]].set_index("claim_id"), metrics
+
+
+def monthly_trends(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compute per-provider-per-month metrics for trend charts.
+    Returns a DataFrame with columns:
+        provider_id, month, claim_count, avg_amount, total_amount, dup_count
+    Only works when claim_date is present; returns empty DF otherwise.
+    """
+    if "claim_date" not in df.columns:
+        return pd.DataFrame()
+
+    tmp = df.copy()
+    tmp["_amount"] = pd.to_numeric(tmp["claim_amount"], errors="coerce")
+    tmp["_date"]   = pd.to_datetime(tmp["claim_date"], errors="coerce")
+    tmp["month"]   = tmp["_date"].dt.to_period("M").astype(str)
+
+    dup_mask = tmp.duplicated(subset=["provider_id", "member_id", "_amount"], keep=False)
+
+    grp = tmp.groupby(["provider_id", "month"])
+    trends = pd.DataFrame({
+        "claim_count":  grp["claim_id"].count(),
+        "avg_amount":   grp["_amount"].mean().round(2),
+        "total_amount": grp["_amount"].sum().round(2),
+        "dup_count":    tmp[dup_mask].groupby(["provider_id", "month"])["claim_id"].count(),
+    }).reset_index()
+
+    trends["dup_count"] = trends["dup_count"].fillna(0).astype(int)
+    trends = trends.sort_values(["provider_id", "month"])
+    return trends

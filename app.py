@@ -11,7 +11,9 @@ import plotly.graph_objects as go
 from datetime import datetime
 
 from modules.column_detector import detect_columns
-from modules.data_loader import parse_upload, save_session, list_sessions, load_session, delete_session
+from modules.data_loader import (parse_upload, save_session, list_sessions,
+                                  load_session, delete_session,
+                                  save_feedback, load_feedback, get_feedback_stats)
 from modules import fraud_detection, provider_risk, member_utilization, cost_outlier, risk_scorer, exporter
 from modules.lang import t, translate_flag
 
@@ -148,6 +150,10 @@ if "profile" not in st.session_state:
     st.session_state.profile = None
 if "active_session" not in st.session_state:
     st.session_state.active_session = None
+if "trends_df" not in st.session_state:
+    st.session_state.trends_df = None
+if "session_id" not in st.session_state:
+    st.session_state.session_id = "demo"
 
 
 # ── Sidebar navigation ─────────────────────────────────────────────────────────
@@ -249,10 +255,14 @@ def run_analysis(df_raw: pd.DataFrame):
     with st.spinner(t("spin_scoring")):
         scored = risk_scorer.compute(df, anomaly_res, prov_claim_scores, mem_claim_scores, cost_res)
 
+    trends_df = provider_risk.monthly_trends(df)
+
     st.session_state.scored_df   = scored
     st.session_state.provider_df = provider_df
     st.session_state.member_df   = member_df
     st.session_state.profile     = profile
+    st.session_state.trends_df   = trends_df
+    st.session_state.session_id  = save_session(df, getattr(df, "_filename", "demo"))
     st.success(t("analysis_complete"))
 
 
@@ -921,31 +931,54 @@ if st.session_state.scored_df is not None:
             if len(top_cards) == 0:
                 st.info("Nenhum solicitação corresponde aos filtros seleccionados.")
             else:
+                # Load existing feedback for this session
+                fb_df = load_feedback(st.session_state.get("session_id", "demo"))
+                fb_map = {} if fb_df.empty else dict(zip(fb_df["claim_id"], fb_df["verdict"]))
+
                 for _, row in top_cards.iterrows():
                     score   = row.get("risk_score", 0)
+                    score_lo = row.get("risk_score_low",  max(0,   score - 5))
+                    score_hi = row.get("risk_score_high", min(100, score + 5))
                     level   = row.get("risk_level", "Low")
                     flags   = row.get("risk_flags", "Sem sinais específicos detectados")
+                    top_rf  = row.get("top_risk_factors", "")
                     amt     = row.get("claim_amount", 0)
+                    cid     = str(row.get("claim_id", "N/D"))
                     clr     = "#EF4444" if level == "High" else "#F59E0B" if level == "Medium" else "#22C55E"
                     bg      = "#2D1515" if level == "High" else "#2D2415" if level == "Medium" else "#152D1A"
                     lvl_pt  = RISK_PT.get(level, level)
+                    bar_w   = int(score)
 
-                    # Score bar width
-                    bar_w = int(score)
+                    # Existing feedback verdict (if any)
+                    existing_verdict = fb_map.get(cid, "")
+                    verdict_badge = ""
+                    if existing_verdict == "Fraude Confirmada":
+                        verdict_badge = '<span style="margin-left:0.6rem;background:#EF444422;color:#EF4444;font-size:0.68rem;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid #EF444455">✓ Fraude</span>'
+                    elif existing_verdict == "Falso Positivo":
+                        verdict_badge = '<span style="margin-left:0.6rem;background:#22C55E22;color:#22C55E;font-size:0.68rem;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid #22C55E55">✓ Falso +</span>'
+                    elif existing_verdict == "Em Investigação":
+                        verdict_badge = '<span style="margin-left:0.6rem;background:#3B82F622;color:#3B82F6;font-size:0.68rem;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid #3B82F655">🔍 Em Invest.</span>'
+
+                    # CI display
+                    ci_str = f"IC: {score_lo:.0f}–{score_hi:.0f}"
 
                     st.markdown(
                         f'<div style="background:{bg};border:1px solid {clr}33;border-left:4px solid {clr};'
                         f'border-radius:10px;padding:0.9rem 1.2rem;margin-bottom:0.5rem">'
                         f'<div style="display:flex;justify-content:space-between;align-items:flex-start">'
                         f'<div>'
-                        f'<span style="font-size:1rem;font-weight:700;color:#F1F5F9">Solicitação {row.get("claim_id","N/D")}</span>'
+                        f'<span style="font-size:1rem;font-weight:700;color:#F1F5F9">Solicitação {cid}</span>'
                         f'<span style="margin-left:0.8rem;background:{clr}22;color:{clr};font-size:0.72rem;'
                         f'font-weight:700;padding:2px 10px;border-radius:20px;border:1px solid {clr}55">{lvl_pt}</span>'
+                        f'{verdict_badge}'
                         f'</div>'
+                        f'<div style="text-align:right">'
                         f'<div style="font-size:1.3rem;font-weight:800;color:{clr}">{score:.0f}<span style="font-size:0.7rem;color:#64748B">/100</span></div>'
+                        f'<div style="font-size:0.68rem;color:#475569">{ci_str}</div>'
+                        f'</div>'
                         f'</div>'
                         f'<div style="margin-top:0.4rem;height:3px;background:#2D3F50;border-radius:2px">'
-                        f'<div style="width:{bar_w}%;height:100%;background:{clr};border-radius:2px;transition:width 0.3s"></div>'
+                        f'<div style="width:{bar_w}%;height:100%;background:{clr};border-radius:2px"></div>'
                         f'</div>'
                         f'<div style="display:flex;gap:1.5rem;margin-top:0.5rem;flex-wrap:wrap">'
                         f'<span style="color:#64748B;font-size:0.8rem">Benef.: <strong style="color:#CBD5E1">{row.get("member_id","N/D")}</strong></span>'
@@ -953,10 +986,26 @@ if st.session_state.scored_df is not None:
                         f'<span style="color:#64748B;font-size:0.8rem">Valor: <strong style="color:#CBD5E1">${amt:,.2f}</strong></span>'
                         f'<span style="color:#64748B;font-size:0.8rem">Data: <strong style="color:#CBD5E1">{str(row.get("claim_date",""))[:10]}</strong></span>'
                         f'</div>'
-                        f'<div style="margin-top:0.4rem;font-size:0.78rem;color:#94A3B8;font-style:italic">{flags}</div>'
+                        f'{"<div style=margin-top:0.45rem;background:#1a2535;border-radius:6px;padding:0.4rem 0.7rem;font-size:0.75rem;color:#94A3B8><strong style=color:#F59E0B>Top fatores de risco:</strong> " + top_rf + "</div>" if top_rf else ""}'
+                        f'<div style="margin-top:0.35rem;font-size:0.78rem;color:#94A3B8;font-style:italic">{flags}</div>'
                         f'</div>',
                         unsafe_allow_html=True,
                     )
+
+                    # Feedback buttons — compact row under each card
+                    fb_col1, fb_col2, fb_col3, fb_col4 = st.columns([1.6, 1.4, 1.4, 5])
+                    with fb_col1:
+                        if st.button("🚨 Fraude Confirmada", key=f"fb_fraud_{cid}", use_container_width=True):
+                            save_feedback(cid, st.session_state.get("session_id", "demo"), "Fraude Confirmada")
+                            st.rerun()
+                    with fb_col2:
+                        if st.button("✅ Falso Positivo", key=f"fb_fp_{cid}", use_container_width=True):
+                            save_feedback(cid, st.session_state.get("session_id", "demo"), "Falso Positivo")
+                            st.rerun()
+                    with fb_col3:
+                        if st.button("🔍 Em Investigação", key=f"fb_inv_{cid}", use_container_width=True):
+                            save_feedback(cid, st.session_state.get("session_id", "demo"), "Em Investigação")
+                            st.rerun()
 
         with tab2:
             def style_risk(val):
@@ -971,6 +1020,36 @@ if st.session_state.scored_df is not None:
                 )
             else:
                 st.dataframe(sorted_df, width='stretch', height=520)
+
+        # ── Feedback Summary ───────────────────────────────────────────────────
+        fb_all = load_feedback(st.session_state.get("session_id", "demo"))
+        if not fb_all.empty:
+            st.markdown("---")
+            st.subheader("📋 Resumo de Investigação — Feedback dos Analistas")
+            v_counts = fb_all["verdict"].value_counts()
+            fc1, fc2, fc3 = st.columns(3)
+            fc1.metric("🚨 Fraude Confirmada",  v_counts.get("Fraude Confirmada", 0))
+            fc2.metric("✅ Falso Positivo",      v_counts.get("Falso Positivo", 0))
+            fc3.metric("🔍 Em Investigação",     v_counts.get("Em Investigação", 0))
+
+            total_fb = len(fb_all)
+            confirmed = v_counts.get("Fraude Confirmada", 0)
+            precision = (confirmed / total_fb * 100) if total_fb > 0 else 0
+            st.markdown(
+                f'<div style="background:#1E2D3D;border-left:4px solid #F59E0B;border-radius:6px;'
+                f'padding:0.7rem 1rem;margin-top:0.5rem;font-size:0.85rem;color:#94A3B8">'
+                f'<strong style="color:#F59E0B">Precisão do modelo:</strong> '
+                f'{precision:.1f}% das solicitações marcadas confirmadas como fraude real '
+                f'({confirmed} de {total_fb} avaliadas). '
+                f'O modelo será mais preciso com mais feedback acumulado.</div>',
+                unsafe_allow_html=True
+            )
+
+            with st.expander("Ver todos os registos de feedback"):
+                st.dataframe(
+                    fb_all[["claim_id", "verdict", "investigator", "notes", "created_at"]],
+                    width="stretch"
+                )
 
         # ── Exportar ───────────────────────────────────────────────────────────
         st.markdown("---")
@@ -1062,6 +1141,65 @@ if st.session_state.scored_df is not None:
                              if c in provider_claims.columns]
                 st.dataframe(provider_claims[show_cols].sort_values("risk_score", ascending=False).head(100),
                              width='stretch')
+
+            # ── Provider Monthly Trend Lines ──────────────────────────────────
+            trends_df = st.session_state.get("trends_df")
+            if trends_df is not None and not trends_df.empty:
+                prov_trends = trends_df[trends_df["provider_id"].astype(str) == sel_provider]
+                if len(prov_trends) >= 2:
+                    st.markdown("#### 📈 Tendência Mensal — Prestador Seleccionado")
+                    tc1, tc2 = st.columns(2)
+
+                    with tc1:
+                        fig_t1 = go.Figure()
+                        fig_t1.add_trace(go.Scatter(
+                            x=prov_trends["month"], y=prov_trends["claim_count"],
+                            mode="lines+markers",
+                            line=dict(color="#3B82F6", width=2),
+                            marker=dict(size=7, color="#3B82F6"),
+                            name="Nº de Solicitações",
+                            hovertemplate="<b>%{x}</b><br>Claims: %{y}<extra></extra>",
+                        ))
+                        fig_t1.update_layout(
+                            title=dict(text="Volume de Solicitações/Mês", font=dict(size=12, color="#94A3B8"), x=0.5, xanchor="center"),
+                            paper_bgcolor="#1E2D3D", plot_bgcolor="#1E2D3D",
+                            font_color="#E2E8F0", height=260,
+                            xaxis=dict(showgrid=False, tickfont=dict(color="#64748B", size=10)),
+                            yaxis=dict(showgrid=True, gridcolor="#243447", tickfont=dict(color="#64748B")),
+                            margin=dict(t=40, b=30, l=50, r=20),
+                        )
+                        st.plotly_chart(fig_t1, use_container_width=True)
+
+                    with tc2:
+                        fig_t2 = go.Figure()
+                        fig_t2.add_trace(go.Scatter(
+                            x=prov_trends["month"], y=prov_trends["avg_amount"],
+                            mode="lines+markers",
+                            line=dict(color="#F59E0B", width=2),
+                            marker=dict(size=7, color="#F59E0B"),
+                            name="Valor Médio",
+                            hovertemplate="<b>%{x}</b><br>Valor Médio: $%{y:,.2f}<extra></extra>",
+                        ))
+                        fig_t2.add_trace(go.Bar(
+                            x=prov_trends["month"], y=prov_trends["dup_count"],
+                            name="Duplicados",
+                            marker=dict(color="#EF444466"),
+                            yaxis="y2",
+                            hovertemplate="<b>%{x}</b><br>Duplicados: %{y}<extra></extra>",
+                        ))
+                        fig_t2.update_layout(
+                            title=dict(text="Valor Médio/Mês + Duplicados", font=dict(size=12, color="#94A3B8"), x=0.5, xanchor="center"),
+                            paper_bgcolor="#1E2D3D", plot_bgcolor="#1E2D3D",
+                            font_color="#E2E8F0", height=260,
+                            xaxis=dict(showgrid=False, tickfont=dict(color="#64748B", size=10)),
+                            yaxis=dict(showgrid=True, gridcolor="#243447", tickfont=dict(color="#64748B"), title="Valor Médio ($)"),
+                            yaxis2=dict(overlaying="y", side="right", tickfont=dict(color="#EF4444", size=9), title="Duplicados"),
+                            legend=dict(orientation="h", y=-0.2, font=dict(size=10)),
+                            margin=dict(t=40, b=30, l=60, r=50),
+                        )
+                        st.plotly_chart(fig_t2, use_container_width=True)
+                elif len(prov_trends) == 1:
+                    st.info("Apenas 1 mês de dados disponível para este prestador — tendência disponível com 2+ meses.")
 
         if "avg_amount" in prov_df.columns and "claim_count" in prov_df.columns:
             fig_scatter = px.scatter(

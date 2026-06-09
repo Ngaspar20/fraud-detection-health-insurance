@@ -20,8 +20,72 @@ def _get_conn():
             columns      TEXT
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS feedback (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            claim_id     TEXT NOT NULL,
+            session_id   TEXT NOT NULL,
+            verdict      TEXT NOT NULL,
+            investigator TEXT,
+            notes        TEXT,
+            created_at   TEXT NOT NULL
+        )
+    """)
     conn.commit()
     return conn
+
+
+# ── Feedback CRUD ─────────────────────────────────────────────────────────────
+
+def save_feedback(claim_id: str, session_id: str, verdict: str,
+                  investigator: str = "", notes: str = "") -> None:
+    """Save or update investigator verdict for a claim.
+    verdict must be: 'Fraude Confirmada' | 'Falso Positivo' | 'Em Investigação'
+    """
+    conn = _get_conn()
+    # Upsert: one verdict per (claim_id, session_id)
+    conn.execute(
+        """INSERT INTO feedback (claim_id, session_id, verdict, investigator, notes, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT DO NOTHING""",
+        (claim_id, session_id, verdict, investigator, notes, datetime.now().isoformat())
+    )
+    # Update if already exists
+    conn.execute(
+        """UPDATE feedback SET verdict=?, investigator=?, notes=?, created_at=?
+           WHERE claim_id=? AND session_id=?""",
+        (verdict, investigator, notes, datetime.now().isoformat(), claim_id, session_id)
+    )
+    conn.commit()
+    conn.close()
+
+
+def load_feedback(session_id: str) -> pd.DataFrame:
+    """Return all feedback rows for a session as a DataFrame."""
+    try:
+        conn = _get_conn()
+        df = pd.read_sql(
+            "SELECT * FROM feedback WHERE session_id=? ORDER BY created_at DESC",
+            conn, params=(session_id,)
+        )
+        conn.close()
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+
+def get_feedback_stats() -> pd.DataFrame:
+    """Return aggregate feedback counts across all sessions."""
+    try:
+        conn = _get_conn()
+        df = pd.read_sql(
+            "SELECT verdict, COUNT(*) as count FROM feedback GROUP BY verdict",
+            conn
+        )
+        conn.close()
+        return df
+    except Exception:
+        return pd.DataFrame()
 
 
 def save_session(df: pd.DataFrame, filename: str) -> str:
