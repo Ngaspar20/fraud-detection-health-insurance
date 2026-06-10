@@ -16,6 +16,7 @@ TRANSLATIONS = {
     "nav_report":        {"pt": "Relatório por Beneficiário",  "en": "Member Risk Report"},
     "nav_data":          {"pt": "Gestão de Dados",             "en": "Data Management"},
     "nav_howto":         {"pt": "Como Funciona",               "en": "How It Works"},
+    "nav_eval":          {"pt": "Avaliação da Plataforma",     "en": "Platform Evaluation"},
 
     # ── Sidebar ─────────────────────────────────────────────────────────────────
     "sidebar_title":     {"pt": "Painel Executivo",            "en": "Executive Panel"},
