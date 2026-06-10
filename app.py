@@ -193,6 +193,10 @@ if "session_id" not in st.session_state:
     st.session_state.session_id = "demo"
 if "supervised_metrics" not in st.session_state:
     st.session_state.supervised_metrics = supervised_model.load_metrics()
+if "model_pkl_mtime" not in st.session_state:
+    # Track pickle modification time to detect external model updates
+    _pkl = supervised_model.MODEL_PATH
+    st.session_state.model_pkl_mtime = _pkl.stat().st_mtime if _pkl.exists() else 0
 
 
 # ── Sidebar navigation ─────────────────────────────────────────────────────────
@@ -1198,11 +1202,12 @@ if st.session_state.scored_df is not None:
         sm_metrics  = st.session_state.get("supervised_metrics")
         fb_for_auto = load_feedback(st.session_state.get("session_id", "demo"))
 
-        # Auto-train silently whenever enough new labels exist
+        # ── Auto-train: fires when enough new labels accumulate ──────────────
         _n_fraud_auto = 0 if fb_for_auto.empty else (fb_for_auto["verdict"] == "Fraude Confirmada").sum()
         _n_legit_auto = 0 if fb_for_auto.empty else (fb_for_auto["verdict"] == "Falso Positivo").sum()
         _prev_labeled = (sm_metrics or {}).get("n_labeled", 0)
         _new_total    = int(_n_fraud_auto) + int(_n_legit_auto)
+        _did_retrain  = False
         if _n_fraud_auto >= 5 and _n_legit_auto >= 5 and _new_total > _prev_labeled:
             _auto_model, _auto_metrics = supervised_model.train(
                 st.session_state.scored_df, fb_for_auto
@@ -1212,7 +1217,31 @@ if st.session_state.scored_df is not None:
                     st.session_state.scored_df, _auto_model
                 )
                 st.session_state.supervised_metrics = _auto_metrics
-                sm_metrics = _auto_metrics
+                sm_metrics   = _auto_metrics
+                _did_retrain = True
+
+        # ── Detect external model update (Jupyter / model_training.py) ───────
+        _pkl = supervised_model.MODEL_PATH
+        _current_mtime = _pkl.stat().st_mtime if _pkl.exists() else 0
+        if _current_mtime > st.session_state.get("model_pkl_mtime", 0):
+            st.session_state.model_pkl_mtime = _current_mtime
+            _ext_metrics = supervised_model.load_metrics()
+            if _ext_metrics and _ext_metrics.get("status") == "trained":
+                st.session_state.scored_df = supervised_model.predict(
+                    st.session_state.scored_df
+                )
+                st.session_state.supervised_metrics = _ext_metrics
+                sm_metrics   = _ext_metrics
+                _did_retrain = True
+
+        # ── Re-score notification + page refresh ──────────────────────────────
+        if _did_retrain:
+            _n_lab_new = (sm_metrics or {}).get("n_labeled", 0)
+            st.toast(
+                f"🤖 Modelo actualizado — scores re-calculados com {_n_lab_new} avaliações",
+                icon="✅"
+            )
+            st.rerun()
 
         # One quiet status line — all the user needs to see
         st.markdown("---")
