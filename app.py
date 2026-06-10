@@ -1751,94 +1751,84 @@ if st.session_state.scored_df is not None:
 # PÁGINA: Avaliação da Plataforma (não requer dados carregados)
 # ══════════════════════════════════════════════════════════════════════════════
 if page == t("nav_eval"):
-    st.title("⭐ Avaliação da Plataforma")
-    st.caption("Partilhe a sua experiência para nos ajudar a melhorar continuamente. A sua opinião é essencial.")
+    st.title(f"⭐ {t('eval_title')}")
+    st.caption(t("eval_caption"))
 
-    tab_form, tab_results = st.tabs(["📝 Formulário de Avaliação", "📊 Resultados e Resumo"])
+    tab_form, tab_results = st.tabs([t("eval_tab_form"), t("eval_tab_results")])
 
     # ── Tab 1: Formulário ─────────────────────────────────────────────────────
     with tab_form:
         st.markdown(
-            "<div style='background:#1E2D3D;border:1px solid #2D3F50;border-left:4px solid #F59E0B;"
-            "border-radius:10px;padding:1rem 1.5rem;margin-bottom:1.5rem'>"
-            "<div style='color:#F59E0B;font-weight:700;margin-bottom:4px'>ℹ️ Sobre esta avaliação</div>"
-            "<div style='color:#94A3B8;font-size:0.87rem'>Este formulário destina-se à equipa que utiliza a plataforma no dia-a-dia. "
-            "As respostas são guardadas anonimamente e usadas para melhorar a ferramenta durante o piloto.</div>"
-            "</div>",
+            f"<div style='background:#1E2D3D;border:1px solid #2D3F50;border-left:4px solid #F59E0B;"
+            f"border-radius:10px;padding:1rem 1.5rem;margin-bottom:1.5rem'>"
+            f"<div style='color:#F59E0B;font-weight:700;margin-bottom:4px'>{t('eval_info_title')}</div>"
+            f"<div style='color:#94A3B8;font-size:0.87rem'>{t('eval_info_body')}</div>"
+            f"</div>",
             unsafe_allow_html=True,
         )
 
+        _role_opts    = t("eval_role_opts")
+        _role_none    = _role_opts[0]
+        _time_opts    = t("eval_time_opts")
+        _rec_opts     = t("eval_rec_opts")
+        _useful_lbls  = t("eval_useful_labels")
+        _acc_lbls     = t("eval_acc_labels")
+
         with st.form("eval_form", clear_on_submit=True):
-            st.subheader("👤 Identificação (opcional)")
+            st.subheader(t("eval_section_id"))
             ev_c1, ev_c2 = st.columns(2)
             with ev_c1:
-                ev_name = st.text_input("Nome / Iniciais", placeholder="Ex: João S. (opcional)")
+                ev_name = st.text_input(t("eval_name"), placeholder=t("eval_name_ph"))
             with ev_c2:
-                ev_role = st.selectbox(
-                    "Cargo / Função",
-                    ["— Seleccionar —", "Analista de Fraude", "Investigador",
-                     "Gestor de Operações", "Director de Risco", "Auditor", "Outro"],
-                )
+                ev_role = st.selectbox(t("eval_role"), _role_opts)
 
             st.markdown("---")
-            st.subheader("🎯 Utilidade e Eficácia")
+            st.subheader(t("eval_section_eff"))
 
             ev_useful = st.slider(
-                "Quão útil é esta plataforma para o seu trabalho?",
+                t("eval_useful_q"),
                 min_value=1, max_value=5, value=3,
                 format="%d ⭐",
-                help="1 = Pouco útil  |  5 = Extremamente útil"
+                help=t("eval_useful_help"),
             )
-            _useful_labels = {1: "Pouco útil", 2: "Útil com reservas", 3: "Moderadamente útil",
-                              4: "Muito útil", 5: "Extremamente útil"}
-            st.caption(f"Seleccionado: **{_useful_labels[ev_useful]}**")
+            st.caption(f"{t('eval_selected')} **{_useful_lbls[ev_useful]}**")
 
-            ev_time = st.radio(
-                "A plataforma poupa tempo na investigação de fraude?",
-                ["Sim, poupa significativamente", "Sim, algum tempo", "Neutro", "Não poupa", "Ainda não tenho dados suficientes"],
-                horizontal=False,
-            )
+            ev_time = st.radio(t("eval_time_q"), _time_opts, horizontal=False)
 
             ev_accuracy = st.slider(
-                "Quão precisas são as sinalizações de risco?",
+                t("eval_acc_q"),
                 min_value=1, max_value=5, value=3,
                 format="%d ⭐",
-                help="1 = Muitos falsos alarmes  |  5 = Muito precisas"
+                help=t("eval_acc_help"),
             )
-            _acc_labels = {1: "Muitos falsos alarmes", 2: "Imprecisa", 3: "Razoável",
-                           4: "Precisa", 5: "Muito precisa"}
-            st.caption(f"Seleccionado: **{_acc_labels[ev_accuracy]}**")
+            st.caption(f"{t('eval_selected')} **{_acc_lbls[ev_accuracy]}**")
 
             st.markdown("---")
-            st.subheader("🔄 Recomendação e Melhorias")
+            st.subheader(t("eval_section_rec"))
 
-            ev_recommend = st.radio(
-                "Recomendaria esta plataforma a outras seguradoras?",
-                ["Sim, definitivamente", "Sim, com algumas melhorias", "Talvez", "Não recomendaria"],
-                horizontal=True,
-            )
+            ev_recommend = st.radio(t("eval_rec_q"), _rec_opts, horizontal=True)
 
             ev_features = st.text_area(
-                "Que funcionalidades gostaria de ver adicionadas?",
-                placeholder="Ex: integração com o sistema interno, alertas por email, dashboard em tempo real...",
+                t("eval_feat_q"),
+                placeholder=t("eval_feat_ph"),
                 height=100,
             )
 
             ev_comments = st.text_area(
-                "Comentários gerais ou outros aspectos a partilhar",
-                placeholder="Desempenho, interface, facilidade de uso, sugestões...",
+                t("eval_comments_q"),
+                placeholder=t("eval_comments_ph"),
                 height=120,
             )
 
             st.markdown("")
             submitted = st.form_submit_button(
-                "✅ Submeter Avaliação",
+                t("eval_submit"),
                 use_container_width=True,
                 type="primary",
             )
 
         if submitted:
-            role_val = ev_role if ev_role != "— Seleccionar —" else ""
+            role_val = ev_role if ev_role != _role_none else ""
             save_evaluation(
                 respondent_name   = ev_name.strip(),
                 respondent_role   = role_val,
@@ -1850,7 +1840,7 @@ if page == t("nav_eval"):
                 general_comments  = ev_comments.strip(),
                 session_id        = st.session_state.get("session_id"),
             )
-            st.success("✅ Obrigado! A sua avaliação foi guardada com sucesso.")
+            st.success(t("eval_success"))
             st.balloons()
 
     # ── Tab 2: Resultados ─────────────────────────────────────────────────────
@@ -1858,30 +1848,28 @@ if page == t("nav_eval"):
         eval_df = load_evaluations()
 
         if eval_df.empty:
-            st.info("📭 Ainda não existem avaliações submetidas. Seja o primeiro a avaliar!")
+            st.info(t("eval_empty"))
         else:
             n_resp = len(eval_df)
 
-            # KPIs de topo
             avg_useful   = eval_df["usefulness_rating"].dropna().mean()
             avg_accuracy = eval_df["accuracy_rating"].dropna().mean()
 
             rk1, rk2, rk3 = st.columns(3)
-            rk1.metric("📋 Total de Respostas",        f"{n_resp}")
-            rk2.metric("⭐ Utilidade Média",            f"{avg_useful:.1f} / 5.0")
-            rk3.metric("🎯 Precisão Média (percepção)", f"{avg_accuracy:.1f} / 5.0")
+            rk1.metric(t("eval_kpi_total"),  f"{n_resp}")
+            rk2.metric(t("eval_kpi_useful"), f"{avg_useful:.1f} / 5.0")
+            rk3.metric(t("eval_kpi_acc"),    f"{avg_accuracy:.1f} / 5.0")
 
             st.markdown("---")
 
-            # Distribuição de utilidade
             ec1, ec2 = st.columns(2)
             with ec1:
                 useful_counts = eval_df["usefulness_rating"].dropna().value_counts().sort_index()
                 fig_u = px.bar(
                     x=useful_counts.index.astype(str),
                     y=useful_counts.values,
-                    labels={"x": "Pontuação (1-5)", "y": "Respostas"},
-                    title="Distribuição — Utilidade da Plataforma",
+                    labels={"x": t("eval_score_label"), "y": t("eval_responses")},
+                    title=t("eval_chart_useful"),
                     color=useful_counts.values,
                     color_continuous_scale=["#EF4444", "#F59E0B", "#22C55E"],
                 )
@@ -1898,8 +1886,8 @@ if page == t("nav_eval"):
                 fig_a = px.bar(
                     x=acc_counts.index.astype(str),
                     y=acc_counts.values,
-                    labels={"x": "Pontuação (1-5)", "y": "Respostas"},
-                    title="Distribuição — Precisão das Sinalizações",
+                    labels={"x": t("eval_score_label"), "y": t("eval_responses")},
+                    title=t("eval_chart_acc"),
                     color=acc_counts.values,
                     color_continuous_scale=["#EF4444", "#F59E0B", "#22C55E"],
                 )
@@ -1911,28 +1899,25 @@ if page == t("nav_eval"):
                 )
                 st.plotly_chart(fig_a, use_container_width=True)
 
-            # Poupança de tempo
             if "time_savings" in eval_df.columns and eval_df["time_savings"].notna().any():
-                st.markdown("**⏱️ Poupança de Tempo**")
+                st.markdown(t("eval_time_title"))
                 ts_counts = eval_df["time_savings"].value_counts()
                 for option, count in ts_counts.items():
                     pct = count / n_resp * 100
-                    bar_w = int(pct)
                     st.markdown(
                         f"<div style='margin-bottom:6px'>"
                         f"<span style='color:#94A3B8;font-size:0.85rem'>{option}</span><br>"
                         f"<div style='background:#0D1B2A;border-radius:4px;height:8px;width:100%'>"
-                        f"<div style='background:#3B82F6;border-radius:4px;height:8px;width:{bar_w}%'></div></div>"
-                        f"<span style='color:#64748B;font-size:0.78rem'>{count} resposta(s) — {pct:.0f}%</span>"
+                        f"<div style='background:#3B82F6;border-radius:4px;height:8px;width:{int(pct)}%'></div></div>"
+                        f"<span style='color:#64748B;font-size:0.78rem'>{count} {t('eval_response_lbl')} — {pct:.0f}%</span>"
                         f"</div>",
                         unsafe_allow_html=True,
                     )
 
             st.markdown("---")
 
-            # Recomendação
             if "recommendation" in eval_df.columns and eval_df["recommendation"].notna().any():
-                st.markdown("**🔄 Recomendaria a outras seguradoras?**")
+                st.markdown(t("eval_rec_title"))
                 rec_counts = eval_df["recommendation"].value_counts()
                 fig_r = px.pie(
                     values=rec_counts.values,
@@ -1948,13 +1933,12 @@ if page == t("nav_eval"):
                 )
                 st.plotly_chart(fig_r, use_container_width=True)
 
-            # Pedidos de funcionalidades
             feat_reqs = eval_df["feature_requests"].dropna()
             feat_reqs = feat_reqs[feat_reqs.str.strip() != ""]
             if not feat_reqs.empty:
                 st.markdown("---")
-                st.subheader("💡 Funcionalidades Pedidas")
-                for i, req in enumerate(feat_reqs, 1):
+                st.subheader(t("eval_feat_title"))
+                for req in feat_reqs:
                     st.markdown(
                         f"<div style='background:#1E2D3D;border:1px solid #2D3F50;border-left:3px solid #3B82F6;"
                         f"border-radius:8px;padding:0.7rem 1rem;margin-bottom:0.5rem;font-size:0.87rem;color:#CBD5E1'>"
@@ -1962,12 +1946,11 @@ if page == t("nav_eval"):
                         unsafe_allow_html=True,
                     )
 
-            # Comentários gerais
             comments = eval_df["general_comments"].dropna()
             comments = comments[comments.str.strip() != ""]
             if not comments.empty:
                 st.markdown("---")
-                st.subheader("💬 Comentários Gerais")
+                st.subheader(t("eval_comm_title"))
                 for comment in comments:
                     st.markdown(
                         f"<div style='background:#1E2D3D;border:1px solid #2D3F50;border-left:3px solid #F59E0B;"
@@ -1976,13 +1959,12 @@ if page == t("nav_eval"):
                         unsafe_allow_html=True,
                     )
 
-            # Exportar para CSV
             st.markdown("---")
             csv_eval = eval_df.to_csv(index=False).encode("utf-8")
             st.download_button(
-                "📥 Exportar Avaliações para CSV",
+                t("eval_export_btn"),
                 csv_eval,
-                f"avaliacoes_plataforma_{datetime.now().strftime('%Y%m%d')}.csv",
+                f"platform_evaluation_{datetime.now().strftime('%Y%m%d')}.csv",
                 "text/csv",
                 use_container_width=False,
             )
