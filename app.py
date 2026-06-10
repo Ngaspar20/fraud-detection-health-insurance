@@ -761,7 +761,7 @@ if page == t("nav_overview"):
     )
 
 # ── Guardar: exige dados para páginas de análise ──────────────────────────────
-if page != t("nav_data") and page != t("nav_howto") and st.session_state.scored_df is None:
+if page != t("nav_data") and page != t("nav_howto") and page != t("nav_eval") and st.session_state.scored_df is None:
     if page == t("nav_overview"):
         st.markdown(
             f'<div style="background:#0D1B2A;border:1px solid #1E3A50;border-radius:10px;'
@@ -1713,9 +1713,9 @@ if st.session_state.scored_df is not None:
             )
 
 # ══════════════════════════════════════════════════════════════════════════════
-# PÁGINA: Avaliação da Plataforma
+# PÁGINA: Avaliação da Plataforma (não requer dados carregados)
 # ══════════════════════════════════════════════════════════════════════════════
-elif page == t("nav_eval"):
+if page == t("nav_eval"):
     st.title("⭐ Avaliação da Plataforma")
     st.caption("Partilhe a sua experiência para nos ajudar a melhorar continuamente. A sua opinião é essencial.")
 
