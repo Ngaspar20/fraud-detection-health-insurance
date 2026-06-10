@@ -43,6 +43,7 @@ def _get_conn():
         CREATE TABLE IF NOT EXISTS evaluation_responses (
             id                INTEGER PRIMARY KEY AUTOINCREMENT,
             response_date     TEXT NOT NULL,
+            session_id        TEXT,
             respondent_name   TEXT,
             respondent_role   TEXT,
             usefulness_rating INTEGER,
@@ -53,6 +54,12 @@ def _get_conn():
             general_comments  TEXT
         )
     """)
+    # Migrate: add session_id if missing from older schema
+    try:
+        conn.execute("ALTER TABLE evaluation_responses ADD COLUMN session_id TEXT")
+        conn.commit()
+    except Exception:
+        pass
     conn.commit()
     return conn
 
@@ -116,16 +123,17 @@ def get_feedback_stats() -> pd.DataFrame:
 def save_evaluation(respondent_name: str = "", respondent_role: str = "",
                     usefulness_rating: int = None, time_savings: str = "",
                     accuracy_rating: int = None, recommendation: str = "",
-                    feature_requests: str = "", general_comments: str = "") -> None:
-    """Store a platform evaluation response."""
+                    feature_requests: str = "", general_comments: str = "",
+                    session_id: str = None) -> None:
+    """Store a platform evaluation response, linked to the active session."""
     conn = _get_conn()
     conn.execute(
         """INSERT INTO evaluation_responses
-               (response_date, respondent_name, respondent_role,
+               (response_date, session_id, respondent_name, respondent_role,
                 usefulness_rating, time_savings, accuracy_rating,
                 recommendation, feature_requests, general_comments)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (datetime.now().isoformat(), respondent_name, respondent_role,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (datetime.now().isoformat(), session_id, respondent_name, respondent_role,
          usefulness_rating, time_savings, accuracy_rating,
          recommendation, feature_requests, general_comments)
     )

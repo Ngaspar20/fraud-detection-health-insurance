@@ -137,6 +137,41 @@ h2 { border-bottom: 1px solid #1E3A50; padding-bottom: 0.5rem; margin-bottom: 1r
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: #0D1B2A; }
 ::-webkit-scrollbar-thumb { background: #1E3A50; border-radius: 3px; }
+
+/* ── Form labels — force white text ── */
+[data-testid="stForm"] label,
+[data-testid="stForm"] .stRadio label,
+[data-testid="stForm"] .stSelectbox label,
+[data-testid="stForm"] .stTextInput label,
+[data-testid="stForm"] .stTextArea label,
+[data-testid="stForm"] .stSlider label,
+[data-testid="stForm"] p,
+[data-testid="stForm"] span { color: #F1F5F9 !important; }
+[data-testid="stForm"] .stRadio > div[role="radiogroup"] > label {
+    color: #CBD5E1 !important;
+    background: rgba(255,255,255,0.03) !important;
+    border: 1px solid #1E3A50 !important;
+    border-radius: 6px !important;
+    padding: 0.4rem 0.8rem !important;
+    margin-bottom: 4px !important;
+}
+[data-testid="stForm"] .stRadio > div[role="radiogroup"] > label:has(input:checked) {
+    background: rgba(245,158,11,0.12) !important;
+    border-color: #F59E0B !important;
+    color: #F59E0B !important;
+}
+[data-testid="stForm"] .stSlider [data-testid="stTickBar"] span { color: #64748B !important; }
+[data-testid="stForm"] input,
+[data-testid="stForm"] textarea {
+    background: #0D1B2A !important;
+    color: #E2E8F0 !important;
+    border: 1px solid #1E3A50 !important;
+}
+[data-testid="stForm"] .stSelectbox > div > div {
+    background: #0D1B2A !important;
+    color: #E2E8F0 !important;
+    border: 1px solid #1E3A50 !important;
+}
 </style>
 """
 st.markdown(THEME_CSS, unsafe_allow_html=True)
@@ -1813,6 +1848,7 @@ if page == t("nav_eval"):
                 recommendation    = ev_recommend,
                 feature_requests  = ev_features.strip(),
                 general_comments  = ev_comments.strip(),
+                session_id        = st.session_state.get("session_id"),
             )
             st.success("✅ Obrigado! A sua avaliação foi guardada com sucesso.")
             st.balloons()
