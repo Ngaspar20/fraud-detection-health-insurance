@@ -1,4 +1,5 @@
 import logging
+import os
 
 # Suppress harmless Windows WinError 10054 noise from asyncio ProactorEventLoop
 logging.getLogger("asyncio").setLevel(logging.CRITICAL)
@@ -14,7 +15,7 @@ from modules.column_detector import detect_columns
 from modules.data_loader import (parse_upload, save_session, list_sessions,
                                   load_session, delete_session,
                                   save_feedback, load_feedback, get_feedback_stats,
-                                  save_evaluation, load_evaluations)
+                                  save_evaluation, load_evaluations, DB_PATH)
 from modules import fraud_detection, provider_risk, member_utilization, cost_outlier, risk_scorer, exporter
 from modules import supervised_model
 from modules.lang import t, translate_flag
@@ -418,6 +419,16 @@ if page == t("nav_data"):
         if uploaded:
             if st.button(t("data_analyze_btn"), type="primary"):
                 df_raw = parse_upload(uploaded)
+                # Memory guard: Streamlit Cloud free tier has ~1 GB RAM and the
+                # pipeline keeps several scored copies of the DataFrame in memory
+                MAX_ROWS = 50_000
+                if len(df_raw) > MAX_ROWS:
+                    st.error(
+                        f"⚠️ O ficheiro tem {len(df_raw):,} linhas — o limite "
+                        f"suportado é {MAX_ROWS:,}. Divida o ficheiro por mês "
+                        f"ou por período mais curto e carregue novamente."
+                    )
+                    st.stop()
                 sid = save_session(df_raw, uploaded.name)
                 st.session_state.active_session = sid
                 run_analysis(df_raw)
@@ -444,6 +455,46 @@ if page == t("nav_data"):
                 st.divider()
         else:
             st.info("Nenhuma sessão anterior encontrada. Carregue um ficheiro para começar.")
+
+    # ── Backup / Restore da base de dados ────────────────────────────────────
+    # Streamlit Cloud has an ephemeral filesystem: claims.db is wiped on every
+    # redeploy or container restart. These buttons let the team export the DB
+    # (sessions + investigator feedback + evaluations) and restore it afterwards.
+    st.subheader("💾 Backup e Restauro da Base de Dados")
+    _bk_col1, _bk_col2 = st.columns([1, 1])
+
+    with _bk_col1:
+        if DB_PATH.exists():
+            with open(DB_PATH, "rb") as _dbf:
+                st.download_button(
+                    label="⬇️ Descarregar Backup (.db)",
+                    data=_dbf.read(),
+                    file_name=f"claims_backup_{datetime.now():%Y%m%d_%H%M}.db",
+                    mime="application/octet-stream",
+                    use_container_width=True,
+                    help="Guarda sessões, feedback dos investigadores e avaliações. "
+                         "Faça backup semanal — os dados são apagados em cada redeploy.",
+                )
+        else:
+            st.info("Ainda não existe base de dados para exportar.")
+
+    with _bk_col2:
+        _restore_file = st.file_uploader(
+            "Restaurar Backup (.db)", type=["db"], key="db_restore_upload"
+        )
+        if _restore_file is not None:
+            if st.button("⚠️ Confirmar Restauro (substitui a BD actual)",
+                         use_container_width=True):
+                DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+                # Atomic replace so a failed upload can't corrupt the live DB
+                _tmp_db = DB_PATH.with_suffix(".db.tmp")
+                with open(_tmp_db, "wb") as _out:
+                    _out.write(_restore_file.getbuffer())
+                os.replace(_tmp_db, DB_PATH)
+                st.success("✅ Base de dados restaurada. A recarregar...")
+                st.rerun()
+
+    st.markdown("<hr style='border-color:#2D3F50;margin:1rem 0'>", unsafe_allow_html=True)
 
     # ── Model Administration (technical — lives here, not on claims page) ────
     st.subheader("🤖 Estado do Modelo de IA")

@@ -10,7 +10,11 @@ DB_PATH = Path(__file__).parent.parent / "data" / "claims.db"
 
 def _get_conn():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH))
+    # timeout + WAL + busy_timeout: tolerate concurrent writes from multiple
+    # investigators (SQLite locks the whole DB on write)
+    conn = sqlite3.connect(str(DB_PATH), timeout=15)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=15000")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS sessions (
             session_id   TEXT PRIMARY KEY,

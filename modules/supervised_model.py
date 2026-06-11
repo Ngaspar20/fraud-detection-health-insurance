@@ -17,6 +17,7 @@ within the same session. On Streamlit Cloud, the file is ephemeral across
 redeploys — the user must retrain after each deployment using the Retrain button.
 """
 
+import os
 import pickle
 import pandas as pd
 import numpy as np
@@ -212,8 +213,12 @@ def predict(scored_df: pd.DataFrame, model=None) -> pd.DataFrame:
 
 def save_model(model, metrics: dict) -> None:
     MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(MODEL_PATH, "wb") as f:
+    # Atomic write: dump to a temp file then rename, so an interrupted
+    # training run can never leave a corrupt half-written pickle behind
+    tmp_path = MODEL_PATH.with_suffix(".pkl.tmp")
+    with open(tmp_path, "wb") as f:
         pickle.dump({"model": model, "metrics": metrics}, f)
+    os.replace(tmp_path, MODEL_PATH)
 
 
 def load_model():
