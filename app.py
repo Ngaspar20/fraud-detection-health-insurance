@@ -18,6 +18,7 @@ from modules.data_loader import (parse_upload, save_session, list_sessions,
                                   save_evaluation, load_evaluations, DB_PATH)
 from modules import fraud_detection, provider_risk, member_utilization, cost_outlier, risk_scorer, exporter
 from modules import supervised_model
+from modules import reference_tables, rules_engine, temporal_analysis
 from modules.lang import t, translate_flag
 
 # ── Language init (before any st calls) ───────────────────────────────────────
@@ -198,6 +199,10 @@ if "model_pkl_mtime" not in st.session_state:
     # Track pickle modification time to detect external model updates
     _pkl = supervised_model.MODEL_PATH
     st.session_state.model_pkl_mtime = _pkl.stat().st_mtime if _pkl.exists() else 0
+if "rule_status" not in st.session_state:
+    st.session_state.rule_status = None
+if "temporal_stats" not in st.session_state:
+    st.session_state.temporal_stats = None
 
 
 # ── Sidebar navigation ─────────────────────────────────────────────────────────
@@ -210,6 +215,7 @@ def build_nav():
         f"💰  {t('nav_costs')}",
         f"📋  {t('nav_report')}",
         f"📁  {t('nav_data')}",
+        f"📋  {t('nav_reftables')}",
         f"ℹ️  {t('nav_howto')}",
         f"⭐  {t('nav_eval')}",
     ]
@@ -297,8 +303,22 @@ def run_analysis(df_raw: pd.DataFrame):
     with st.spinner(t("spin_costs")):
         cost_res = cost_outlier.run(df, profile)
 
+    # Hybrid layers: deterministic rules + temporal analytics
+    with st.spinner("Avaliando regras de negócio..." if st.session_state.lang == "pt"
+                    else "Evaluating business rules..."):
+        rule_res, rule_status = rules_engine.run(df, profile)
+        st.session_state.rule_status = rule_status
+
+    with st.spinner("Analisando padrões temporais..." if st.session_state.lang == "pt"
+                    else "Analysing temporal patterns..."):
+        temporal_res, temporal_stats = temporal_analysis.run(df)
+        st.session_state.temporal_stats = temporal_stats
+
     with st.spinner(t("spin_scoring")):
-        scored = risk_scorer.compute(df, anomaly_res, prov_claim_scores, mem_claim_scores, cost_res)
+        scored = risk_scorer.compute(
+            df, anomaly_res, prov_claim_scores, mem_claim_scores, cost_res,
+            rule_results=rule_res, temporal_results=temporal_res,
+        )
 
     trends_df = provider_risk.monthly_trends(df)
 
@@ -634,6 +654,153 @@ if page == t("nav_data"):
         """)
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# PÁGINA: Tabelas de Referência e Motor de Regras
+# ──────────────────────────────────────────────────────────────────────────────
+if page == t("nav_reftables"):
+    st.title(f"📋 {t('ref_title')}")
+    st.caption(t("ref_caption"))
+
+    _ref_c1, _ref_c2 = st.columns(2)
+
+    # ── Tabela de Preços ──────────────────────────────────────────────────────
+    with _ref_c1:
+        st.subheader(f"💰 {t('ref_price_title')}")
+        st.caption(t("ref_price_desc"))
+
+        _price_df = reference_tables.load_price_table()
+        if not _price_df.empty:
+            st.success(f"✅ {len(_price_df):,} {t('ref_loaded')} · "
+                       f"{_price_df['uploaded_at'].iloc[0][:16]}")
+            with st.expander("Ver tabela actual"):
+                st.dataframe(
+                    _price_df[["procedure_code", "procedure_desc",
+                               "agreed_price", "currency"]],
+                    use_container_width=True, hide_index=True)
+        else:
+            st.info(t("ref_none"))
+
+        st.download_button(
+            t("ref_template"), data=reference_tables.price_table_template(),
+            file_name="template_tabela_precos.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="tpl_price")
+
+        _price_up = st.file_uploader(t("ref_upload"), type=["xlsx", "csv"],
+                                     key="up_price")
+        if _price_up is not None:
+            try:
+                _raw = (pd.read_csv(_price_up) if _price_up.name.lower().endswith(".csv")
+                        else pd.read_excel(_price_up))
+                _n, _warns = reference_tables.save_price_table(_raw)
+                st.success(f"✅ {t('ref_save_ok')}: {_n:,} {t('ref_loaded')}")
+                for _w in _warns:
+                    st.warning(_w)
+                st.rerun()
+            except ValueError as _e:
+                st.error(str(_e))
+
+    # ── Regras de Cobertura ───────────────────────────────────────────────────
+    with _ref_c2:
+        st.subheader(f"🛡️ {t('ref_cov_title')}")
+        st.caption(t("ref_cov_desc"))
+
+        _cov_df = reference_tables.load_coverage_rules()
+        if not _cov_df.empty:
+            st.success(f"✅ {len(_cov_df):,} {t('ref_loaded')} · "
+                       f"{_cov_df['uploaded_at'].iloc[0][:16]}")
+            with st.expander("Ver regras actuais"):
+                st.dataframe(
+                    _cov_df[["plan_id", "benefit_category", "annual_limit",
+                             "per_claim_limit", "waiting_period_days",
+                             "excluded_procedures"]],
+                    use_container_width=True, hide_index=True)
+        else:
+            st.info(t("ref_none"))
+
+        st.download_button(
+            t("ref_template"), data=reference_tables.coverage_template(),
+            file_name="template_regras_cobertura.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="tpl_cov")
+
+        _cov_up = st.file_uploader(t("ref_upload"), type=["xlsx", "csv"],
+                                   key="up_cov")
+        if _cov_up is not None:
+            try:
+                _raw = (pd.read_csv(_cov_up) if _cov_up.name.lower().endswith(".csv")
+                        else pd.read_excel(_cov_up))
+                _n, _warns = reference_tables.save_coverage_rules(_raw)
+                st.success(f"✅ {t('ref_save_ok')}: {_n:,} {t('ref_loaded')}")
+                for _w in _warns:
+                    st.warning(_w)
+                st.rerun()
+            except ValueError as _e:
+                st.error(str(_e))
+
+    st.markdown("<hr style='border-color:#2D3F50;margin:1.5rem 0 1rem 0'>",
+                unsafe_allow_html=True)
+
+    # ── Motor de Regras ───────────────────────────────────────────────────────
+    st.subheader(f"⚖️ {t('ref_rules_title')}")
+    st.caption(t("ref_rules_desc"))
+
+    _settings = reference_tables.load_rule_settings()
+    _last_status = {s["rule_id"]: s for s in (st.session_state.rule_status or [])}
+
+    for _rid, _meta in rules_engine.RULES_META.items():
+        _s = _settings.get(_rid, {})
+        _enabled_now = _s.get("enabled", True)
+        _param_now = _s.get("param") if _s.get("param") is not None else _meta["param"]
+        _ls = _last_status.get(_rid)
+
+        _rc1, _rc2, _rc3, _rc4 = st.columns([0.6, 3.2, 2.2, 1.6])
+        with _rc1:
+            _new_enabled = st.toggle(" ", value=_enabled_now,
+                                     key=f"rule_en_{_rid}",
+                                     label_visibility="collapsed")
+        with _rc2:
+            _sev_icon = {1: "🔵", 2: "🟠", 3: "🔴"}[_meta["severity"]]
+            st.markdown(
+                f"**{_rid}** {_sev_icon} {_meta['name']}  \n"
+                f"<span style='color:#64748B;font-size:0.78rem'>"
+                f"{t('ref_rule_requires')}: {_meta['requires']}</span>",
+                unsafe_allow_html=True)
+        with _rc3:
+            if _meta["param_label"]:
+                _new_param = st.number_input(
+                    _meta["param_label"], value=float(_param_now),
+                    min_value=0.0, key=f"rule_p_{_rid}")
+            else:
+                _new_param = None
+                st.markdown("<span style='color:#475569;font-size:0.8rem'>—</span>",
+                            unsafe_allow_html=True)
+        with _rc4:
+            if _ls is not None:
+                if _ls["active"]:
+                    st.markdown(
+                        f"<span style='color:#22C55E;font-weight:700'>"
+                        f"{_ls['n_hits']}</span> "
+                        f"<span style='color:#64748B;font-size:0.75rem'>"
+                        f"{t('ref_rule_hits')}</span>",
+                        unsafe_allow_html=True)
+                else:
+                    st.markdown(
+                        f"<span style='color:#64748B;font-size:0.78rem'>"
+                        f"{t('ref_rule_inactive')}: {_ls['reason']}</span>",
+                        unsafe_allow_html=True)
+
+        # Persist any change immediately
+        if _new_enabled != _enabled_now or (
+                _new_param is not None and float(_new_param) != float(_param_now or 0)):
+            reference_tables.save_rule_setting(_rid, _new_enabled, _new_param)
+
+        st.markdown("<hr style='border-color:#1E3A50;margin:0.3rem 0'>",
+                    unsafe_allow_html=True)
+
+    st.info(f"ℹ️ {t('ref_rerun_note')}")
+
+
 # ── Como Funciona ─────────────────────────────────────────────────────────────
 if page == t("nav_howto"):
     st.markdown("""
@@ -851,7 +1018,7 @@ if page == t("nav_overview"):
     )
 
 # ── Guardar: exige dados para páginas de análise ──────────────────────────────
-if page != t("nav_data") and page != t("nav_howto") and page != t("nav_eval") and st.session_state.scored_df is None:
+if page != t("nav_data") and page != t("nav_howto") and page != t("nav_eval") and page != t("nav_reftables") and st.session_state.scored_df is None:
     if page == t("nav_overview"):
         st.markdown(
             f'<div style="background:#0D1B2A;border:1px solid #1E3A50;border-radius:10px;'
