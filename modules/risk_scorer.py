@@ -79,6 +79,7 @@ def compute(
     cost_results: pd.DataFrame,
     rule_results: pd.DataFrame = None,
     temporal_results: pd.DataFrame = None,
+    network_results: pd.DataFrame = None,
     weights: dict = None,
 ) -> pd.DataFrame:
     """
@@ -116,6 +117,18 @@ def compute(
     else:
         t_flags = [[] for _ in range(len(out))]
 
+    if network_results is not None:
+        n_flags = network_results["network_flags"].tolist()
+        # Relational signals reinforce provider and member components
+        out["provider_risk_score"] = np.clip(
+            pd.to_numeric(out["provider_risk_score"], errors="coerce").fillna(50).values
+            + network_results["network_score"].values * 0.25, 0, 100)
+        out["member_risk_score"] = np.clip(
+            pd.to_numeric(out["member_risk_score"], errors="coerce").fillna(50).values
+            + network_results["network_score"].values * 0.20, 0, 100)
+    else:
+        n_flags = [[] for _ in range(len(out))]
+
     for col in SCORE_COLS.values():
         out[col] = pd.to_numeric(out[col], errors="coerce").fillna(
             50 if col != "rule_score" else 0)
@@ -136,7 +149,7 @@ def compute(
     # ── Merge flags from all layers ───────────────────────────────────────────
     a_flags  = anomaly_results["anomaly_flags"].tolist()
     co_flags = cost_results["cost_outlier_flags"].tolist()
-    all_flags = [a_flags[i] + co_flags[i] + r_flags[i] + t_flags[i]
+    all_flags = [a_flags[i] + co_flags[i] + r_flags[i] + t_flags[i] + n_flags[i]
                  for i in range(len(out))]
     out["risk_flags"] = all_flags
 
@@ -149,6 +162,8 @@ def compute(
             layers += 1                      # deterministic rules layer
         if t_flags[i]:
             layers += 1                      # temporal layer
+        if n_flags[i]:
+            layers += 1                      # relational/network layer
         return layers
 
     layer_counts = np.array([n_layers(i) for i in range(len(out))])

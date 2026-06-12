@@ -18,7 +18,7 @@ from modules.data_loader import (parse_upload, save_session, list_sessions,
                                   save_evaluation, load_evaluations, DB_PATH)
 from modules import fraud_detection, provider_risk, member_utilization, cost_outlier, risk_scorer, exporter
 from modules import supervised_model
-from modules import reference_tables, rules_engine, temporal_analysis
+from modules import reference_tables, rules_engine, temporal_analysis, network_analysis
 from modules.lang import t, translate_flag
 
 # ── Language init (before any st calls) ───────────────────────────────────────
@@ -203,6 +203,8 @@ if "rule_status" not in st.session_state:
     st.session_state.rule_status = None
 if "temporal_stats" not in st.session_state:
     st.session_state.temporal_stats = None
+if "network_stats" not in st.session_state:
+    st.session_state.network_stats = None
 
 
 # ── Sidebar navigation ─────────────────────────────────────────────────────────
@@ -314,10 +316,16 @@ def run_analysis(df_raw: pd.DataFrame):
         temporal_res, temporal_stats = temporal_analysis.run(df)
         st.session_state.temporal_stats = temporal_stats
 
+    with st.spinner("Analisando rede prestador-beneficiário..." if st.session_state.lang == "pt"
+                    else "Analysing provider-member network..."):
+        network_res, network_stats = network_analysis.run(df)
+        st.session_state.network_stats = network_stats
+
     with st.spinner(t("spin_scoring")):
         scored = risk_scorer.compute(
             df, anomaly_res, prov_claim_scores, mem_claim_scores, cost_res,
             rule_results=rule_res, temporal_results=temporal_res,
+            network_results=network_res,
         )
 
     trends_df = provider_risk.monthly_trends(df)
@@ -1676,6 +1684,67 @@ if st.session_state.scored_df is not None:
                 coloraxis_colorbar_title="Risco",
             )
             st.plotly_chart(fig_scatter, width='stretch')
+
+        # ── Análise de Redes (conluio prestador-beneficiário) ────────────────
+        _net = st.session_state.get("network_stats")
+        if _net is not None:
+            st.subheader("🕸️ Análise de Redes — Padrões Relacionais Suspeitos"
+                         if st.session_state.lang == "pt"
+                         else "🕸️ Network Analysis — Suspicious Relational Patterns")
+            _stars = _net.get("stars")
+            _cliques = _net.get("cliques")
+            _combos = _net.get("combos")
+
+            _nc1, _nc2, _nc3 = st.columns(3)
+            _nc1.metric("Padrões em estrela" if st.session_state.lang == "pt"
+                        else "Star patterns",
+                        0 if _stars is None or _stars.empty else len(_stars))
+            _nc2.metric("Pares de prestadores suspeitos" if st.session_state.lang == "pt"
+                        else "Suspicious provider pairs",
+                        0 if _cliques is None or _cliques.empty else len(_cliques))
+            _nc3.metric("Combinações implausíveis" if st.session_state.lang == "pt"
+                        else "Implausible combinations",
+                        0 if _combos is None or _combos.empty else len(_combos))
+
+            if _stars is not None and not _stars.empty:
+                with st.expander(
+                        "⭐ Padrões em estrela — beneficiário concentrado num só prestador"
+                        if st.session_state.lang == "pt"
+                        else "⭐ Star patterns — member concentrated in one provider"):
+                    st.caption(
+                        "Beneficiários com ≥80% dos claims num único prestador "
+                        "(≥8 claims). Pode indicar beneficiário cativo ou conluio."
+                        if st.session_state.lang == "pt" else
+                        "Members with ≥80% of claims in a single provider "
+                        "(≥8 claims). May indicate a captive member or collusion.")
+                    st.dataframe(_stars, use_container_width=True, hide_index=True)
+
+            if _cliques is not None and not _cliques.empty:
+                with st.expander(
+                        "🔗 Pares de prestadores com sobreposição anómala de beneficiários"
+                        if st.session_state.lang == "pt"
+                        else "🔗 Provider pairs with anomalous member overlap"):
+                    st.caption(
+                        "Pares que partilham muito mais beneficiários do que o "
+                        "esperado por acaso (lift ≥4x). Indicador clássico de "
+                        "circuito de referenciação ou conluio."
+                        if st.session_state.lang == "pt" else
+                        "Pairs sharing far more members than expected by chance "
+                        "(lift ≥4x). Classic indicator of referral loops or collusion.")
+                    st.dataframe(_cliques, use_container_width=True, hide_index=True)
+
+            if _combos is not None and not _combos.empty:
+                with st.expander(
+                        "⚠️ Combinações de procedimentos implausíveis no mesmo dia"
+                        if st.session_state.lang == "pt"
+                        else "⚠️ Implausible same-day procedure combinations"):
+                    st.caption(
+                        "Pares de procedimentos que nunca co-ocorrem na carteira, "
+                        "facturados ao mesmo beneficiário no mesmo dia."
+                        if st.session_state.lang == "pt" else
+                        "Procedure pairs that never co-occur in the portfolio, "
+                        "billed to the same member on the same day.")
+                    st.dataframe(_combos, use_container_width=True, hide_index=True)
 
 
     # ── Análise de Beneficiários ───────────────────────────────────────────────
