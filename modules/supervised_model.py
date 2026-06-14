@@ -247,3 +247,50 @@ def load_metrics() -> dict:
 
 def model_is_trained() -> bool:
     return MODEL_PATH.exists()
+
+
+# ── SHAP explainability ───────────────────────────────────────────────────────
+
+def explain_claim(claim_row: pd.Series, model=None) -> dict | None:
+    """
+    Return a SHAP waterfall dict for a single claim.
+
+    Uses TreeExplainer (exact, fast) — no sampling approximation.
+
+    Returns
+    -------
+    dict with keys:
+        "shap_values"   : list[float]  — per-feature SHAP values
+        "base_value"    : float        — model expected value (log-odds)
+        "feature_names" : list[str]    — human-readable labels
+        "feature_values": list[float]  — raw feature values for the claim
+    or None if shap is unavailable or model not trained.
+    """
+    try:
+        import shap  # optional — graceful fallback if not installed
+    except ImportError:
+        return None
+
+    if model is None:
+        model = load_model()
+    if model is None:
+        return None
+
+    X = _extract_features(claim_row.to_frame().T)
+    explainer = shap.TreeExplainer(model)
+    sv = explainer.shap_values(X)
+
+    # shap_values for binary classifier: list[2 arrays]; index 1 = P(fraud)
+    if isinstance(sv, list):
+        shap_vals = sv[1][0]
+    else:
+        shap_vals = sv[0]
+
+    return {
+        "shap_values":    shap_vals.tolist(),
+        "base_value":     float(explainer.expected_value[1]
+                                if isinstance(explainer.expected_value, (list, np.ndarray))
+                                else explainer.expected_value),
+        "feature_names":  [FEATURE_LABELS[c] for c in FEATURE_COLS],
+        "feature_values": X.iloc[0].tolist(),
+    }

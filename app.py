@@ -611,6 +611,65 @@ if page == t("nav_data"):
                     margin=dict(t=10, b=20, l=180, r=60),
                 )
                 st.plotly_chart(_fig_fi, use_container_width=True)
+                st.caption(
+                    "Importância global: quanto cada variável contribui em média para todas as decisões do modelo. "
+                    "Para explicação individual por solicitação, consulte o botão 🔬 em cada card de alerta."
+                )
+
+        # SHAP population-level summary (beeswarm via Plotly scatter)
+        scored_for_shap = st.session_state.get("scored_df")
+        if scored_for_shap is not None and len(scored_for_shap) > 0:
+            with st.expander("🔬 SHAP — Explicabilidade Global do Modelo (para reguladores)"):
+                try:
+                    import shap as _shap_lib
+                    from modules.supervised_model import _extract_features, FEATURE_COLS, FEATURE_LABELS, load_model as _lm
+                    _mdl = _lm()
+                    if _mdl is not None:
+                        _X_all = _extract_features(scored_for_shap)
+                        _exp   = _shap_lib.TreeExplainer(_mdl)
+                        _svs   = _exp.shap_values(_X_all)
+                        _sv_fraud = _svs[1] if isinstance(_svs, list) else _svs
+                        # Mean absolute SHAP per feature (population summary)
+                        _mean_abs = np.abs(_sv_fraud).mean(axis=0)
+                        _summary_df = pd.DataFrame({
+                            "Variável": [FEATURE_LABELS[c] for c in FEATURE_COLS],
+                            "Impacto médio (|SHAP|)": _mean_abs,
+                        }).sort_values("Impacto médio (|SHAP|)", ascending=True)
+                        _fig_gs = go.Figure(go.Bar(
+                            x=_summary_df["Impacto médio (|SHAP|)"],
+                            y=_summary_df["Variável"],
+                            orientation="h",
+                            marker=dict(
+                                color=_summary_df["Impacto médio (|SHAP|)"],
+                                colorscale=[[0, "#243447"], [1, "#0A8A9C"]],
+                            ),
+                            text=[f"{v:.3f}" for v in _summary_df["Impacto médio (|SHAP|)"]],
+                            textposition="outside",
+                            textfont=dict(color="#E2E8F0", size=10),
+                            hovertemplate="<b>%{y}</b><br>Impacto médio: %{x:.4f}<extra></extra>",
+                        ))
+                        _fig_gs.update_layout(
+                            paper_bgcolor="#1E2D3D", plot_bgcolor="#1E2D3D",
+                            font_color="#E2E8F0", height=300,
+                            xaxis=dict(showgrid=True, gridcolor="#243447",
+                                       tickfont=dict(color="#64748B"),
+                                       title=dict(text="Impacto médio absoluto nas decisões →",
+                                                  font=dict(size=10, color="#64748B"))),
+                            yaxis=dict(showgrid=False, tickfont=dict(color="#CBD5E1", size=10)),
+                            margin=dict(t=10, b=40, l=200, r=80),
+                        )
+                        st.plotly_chart(_fig_gs, use_container_width=True)
+                        st.caption(
+                            "📋 **Para reguladores:** Este gráfico mostra quais variáveis têm maior peso nas decisões "
+                            "do modelo de IA, em média, para toda a carteira. Cada decisão individual pode ser "
+                            "consultada na tab Análise de Sinistros → 🔬 Explicação IA."
+                        )
+                    else:
+                        st.info("Treine o modelo supervisionado primeiro para gerar o relatório SHAP global.")
+                except ImportError:
+                    st.warning("Instale `shap` (`pip install shap`) para activar este painel.")
+                except Exception as _e:
+                    st.error(f"Erro ao calcular SHAP: {_e}")
 
     # Full feedback log (admin view)
     if not _fb_admin.empty:
@@ -1409,6 +1468,70 @@ if st.session_state.scored_df is not None:
                             key=f"conf_{cid}",
                             label_visibility="collapsed",
                         )
+
+                    # ── SHAP explainability (only when supervised model is active) ──
+                    if fraud_prob is not None:
+                        with st.expander(f"🔬 Explicação IA — Solicitação {cid}"):
+                            _shap = supervised_model.explain_claim(
+                                st.session_state.scored_df.loc[
+                                    st.session_state.scored_df["claim_id"].astype(str) == cid
+                                ].iloc[0]
+                            )
+                            if _shap is None:
+                                st.caption("Instale `shap` para activar explicações detalhadas.")
+                            else:
+                                sv   = _shap["shap_values"]
+                                fv   = _shap["feature_values"]
+                                fn   = _shap["feature_names"]
+                                base = _shap["base_value"]
+
+                                # Build waterfall bar chart with Plotly
+                                _wf_df = pd.DataFrame({
+                                    "Feature": fn,
+                                    "SHAP": sv,
+                                    "Valor": [f"{v:.1f}" for v in fv],
+                                }).sort_values("SHAP", key=abs, ascending=True)
+
+                                _colors = ["#EF4444" if v > 0 else "#22C55E"
+                                           for v in _wf_df["SHAP"]]
+                                _fig_shap = go.Figure(go.Bar(
+                                    x=_wf_df["SHAP"],
+                                    y=_wf_df["Feature"],
+                                    orientation="h",
+                                    marker=dict(color=_colors),
+                                    text=[
+                                        f"{'▲' if v > 0 else '▼'} {abs(v):.3f}  (valor: {fv})"
+                                        for v, fv in zip(_wf_df["SHAP"], _wf_df["Valor"])
+                                    ],
+                                    textposition="outside",
+                                    textfont=dict(color="#E2E8F0", size=10),
+                                    hovertemplate=(
+                                        "<b>%{y}</b><br>"
+                                        "Contribuição SHAP: %{x:+.3f}<extra></extra>"
+                                    ),
+                                ))
+                                _fig_shap.update_layout(
+                                    paper_bgcolor="#1E2D3D",
+                                    plot_bgcolor="#1E2D3D",
+                                    font_color="#E2E8F0",
+                                    height=260,
+                                    xaxis=dict(
+                                        showgrid=True,
+                                        gridcolor="#243447",
+                                        zeroline=True,
+                                        zerolinecolor="#475569",
+                                        tickfont=dict(color="#64748B"),
+                                        title=dict(text="Impacto no score de fraude →", font=dict(size=10, color="#64748B")),
+                                    ),
+                                    yaxis=dict(showgrid=False, tickfont=dict(color="#CBD5E1", size=10)),
+                                    margin=dict(t=10, b=30, l=200, r=80),
+                                )
+                                st.plotly_chart(_fig_shap, use_container_width=True)
+                                st.caption(
+                                    f"🔴 Vermelho = aumenta risco de fraude   "
+                                    f"🟢 Verde = diminui risco   "
+                                    f"Valor base esperado: {base:.3f}"
+                                )
 
         with tab2:
             def style_risk(val):
